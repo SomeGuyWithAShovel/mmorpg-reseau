@@ -1,0 +1,15 @@
+
+
+Starting Server (127.0.0.1:PORT_NUMBER)
+[2026-05-11T19:37:03Z INFO  mmo_gatekeeper] Listening on address 127.0.0.1:PORT_NUMBER
+[2026-05-11T19:37:35Z INFO  mmo_gatekeeper] handler||
+[2026-05-11T19:37:41Z INFO  mmo_gatekeeper::routes] route_handler
+[2026-05-11T19:37:43Z INFO  mmo_gatekeeper::routes] on_404()
+
+PS > curl.exe http://localhost:PORT_NUMBER/
+Hello, World!
+PS > curl.exe http://localhost:PORT_NUMBER/routes
+<h1>route_handler</h1>
+PS > curl.exe http://localhost:PORT_NUMBER/rout
+404 string
+
