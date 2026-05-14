@@ -1,11 +1,13 @@
-use game_sockets::*
-use bevy::prelude::*
-mod common;
+use bevy::prelude::*;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::fmt;
+use std::str::FromStr;
+
 use crate::common::*;
 
 const DEFAULT_ADDRESS : Ipv4Addr = Ipv4Addr::new(127, 0, 0, 1);
 
-#[derive(Resource)]
+#[derive(Resource, Debug)]
 pub struct ServerConfig {
     pub id: String,          // UUID généré au démarrage
     pub port: u16,
@@ -15,7 +17,7 @@ pub struct ServerConfig {
 }
 
 impl ServerConfig {    
-    fn from_env() -> Self {
+    pub fn from_env() -> Self {
         use uuid::Uuid;
         let id = Uuid::new_v4().to_string();
         
@@ -35,7 +37,7 @@ impl ServerConfig {
                 .map(|s| s.parse::<usize>().ok())
                 .flatten()
                 .unwrap_or(0),
-            orchestrator_address : std::env::var("SERVER_SOCKET_ADDRESS").ok()
+            orchestrator_address : std::env::var("SERVER_ORCHESTRATOR_ADDRESS").ok()
                 .map(|s| Ipv4Addr::from_str(s.as_str()).ok())
                 .flatten()
                 .map(IpAddr::from)
@@ -49,12 +51,12 @@ impl fmt::Display for ServerConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "ServerConfig{{\n\
-            id:{},          \n\
-            port:{},        \n\
-            zone:{},        \n\
-            max_players:{}, \n\
-            orchestrator_address:{}\n\
+            "ServerConfig{{\
+            id:{},          \
+            port:{},        \
+            zone:{},        \
+            max_players:{}, \
+            orchestrator_address:{}\
             }}",
             self.id, self.port, self.zone, self.max_players, self.orchestrator_address)        
     }
