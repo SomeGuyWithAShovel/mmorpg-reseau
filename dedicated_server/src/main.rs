@@ -8,6 +8,7 @@ mod server;
 use crate::server::*;
 use game_sockets::*;
 use game_sockets::protocols::QuicBackend;
+use bytes::Bytes;
 
 // TODO : PlayerInfo doit contenir le DedicatedServerPeer
 pub struct PlayerInfo {
@@ -79,21 +80,25 @@ fn receive_packets(mut peer_res : ResMut<DedicatedServerPeer>,
         // DS crée le stream avec l'orchestrateur
         match event {
             GameNetworkEvent::Connected(connection) => {
-                info!("Connexion client : {:?}", connection);
+                info!("Connexion client ou orchestrateur : {:?}", connection);
+                if !peer_res.orchestrator.is_some() {
+                    peer_res.peer.create_stream(connection, GameStreamReliability::Unreliable);
+                }
             }
             GameNetworkEvent::Disconnected(connection) => {
-                info!("Déconnexion client : {:?}", connection);
-                player_registry.players.remove(&connection);
+                info!("Déconnexion client ou orchestrateur: {:?}", connection);
             }
             GameNetworkEvent::Message{ connection, stream, data } => {
                 if let Ok(str_data) = str::from_utf8(&data[..]) {
                     if str_data.starts_with("JOIN") && let Some(username) = str_data.strip_prefix("JOIN { ").and_then(|s| s.strip_suffix(" }")) {
-                        let player_info = PlayerInfo{
+                        let response = Bytes::from(format!("WELCOME {{ {} }}", username));
+                        peer_res.peer.send(&connection, &stream, response);
+                        let player_info = PlayerInfo {
                             username: username.to_string(),
                             stream
                         };
-                        player_registry.players.insert(connection, player_info);
-                    }                        
+                        player_registry.players.insert(connection, player_info);                        
+                    }
                 }
                 else {
                     warn!("Donnée non UTF8 envoyée par {:?}", connection);
@@ -104,10 +109,16 @@ fn receive_packets(mut peer_res : ResMut<DedicatedServerPeer>,
             }
             GameNetworkEvent::StreamCreated(connection, stream) => {
                 // Stream avec l'orchestrateur
-                peer_res.orchestrator = Some(OrchestratorConnection{connection, stream});
+                if !peer_res.orchestrator.is_some() {
+                    info!("Création du stream avec l'orchestrateur : {:?}", connection);
+                    peer_res.orchestrator = Some(OrchestratorConnection{connection, stream});
+                }
             }
-            GameNetworkEvent::StreamClosed(_, _) => {
-                peer_res.orchestrator = None;
+            GameNetworkEvent::StreamClosed(connection, _stream) => {
+                if let Some(orch) = &peer_res.orchestrator && orch.connection == connection {
+                    warn!("Stream de l'orchestrateur fermé");
+                    peer_res.orchestrator = None;
+                }
             }
         }
     }
