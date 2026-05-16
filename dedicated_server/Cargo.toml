@@ -9,5 +9,6 @@ bevy = "0.18.1"
 # bevy_rand = "0.14"
 # bevy_prng = { version = "0.14", features = ["chacha20", "wyrand"] }
 # rand = "0.10.1"
-# game_sockets = { path = "../game_sockets" }
+game_sockets = { path = "../game_sockets" }
 uuid = { version = "1.23.1", features = ["v4"]}
+bytes = "1"
