@@ -1,10 +1,10 @@
 use std::net::{SocketAddr, IpAddr::{V4, V6}, Ipv4Addr, Ipv6Addr, IpAddr};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-
+use uuid::Uuid;
 pub const SECONDS_BETWEEN_HEARTBEATS : f32 = 5.0;
 
 pub struct Heartbeat {
-    pub id : String,
+    pub id : Uuid,
     pub addr : SocketAddr,
     pub zone : String,
     pub player_count : usize,
@@ -25,7 +25,6 @@ impl Heartbeat {
 
         let Self{id, addr, zone, player_count, is_full} = self;
 
-        assert_eq!(id.len(), 16);
         res.put_slice(id.as_bytes());
         let bools = (addr.is_ipv4() as u8) | (*is_full as u8) << 1;
         res.put_u8(bools);
@@ -46,9 +45,7 @@ impl Heartbeat {
     pub fn from_bytes(mut data : Bytes) -> Option<Self> {
         let mut id_bytes = [0; 16];
         data.copy_to_slice(&mut id_bytes);
-        let res_id = String::from_utf8(id_bytes.to_vec());
-
-        let Ok(id) = res_id else { return None; };
+        let id = Uuid::from_bytes(id_bytes);
 
         let bools = data.get_u8();
         let is_ipv4 = bools & 1 == 1;

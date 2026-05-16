@@ -9,6 +9,7 @@ use crate::server::*;
 use game_sockets::*;
 use game_sockets::protocols::QuicBackend;
 use bytes::Bytes;
+use bevy::log::info;
 
 // TODO : PlayerInfo doit contenir le DedicatedServerPeer
 pub struct PlayerInfo {
@@ -55,7 +56,7 @@ fn main() {
 }
 
 fn debug_info(config : Res<ServerConfig>) {
-    info!("{}", config.into_inner());
+    println!("{:?}", config.into_inner());
 }
 
 fn bind_socket(mut commands : Commands, config : Res<ServerConfig>) -> Result {       

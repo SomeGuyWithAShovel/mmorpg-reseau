@@ -2,13 +2,14 @@ use bevy::prelude::*;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::fmt;
 use std::str::FromStr;
+use uuid::Uuid;
 
 const DEFAULT_ADDRESS : Ipv4Addr = Ipv4Addr::new(127, 0, 0, 1);
 const DEFAULT_PORT : u16 = 28080;
 
 #[derive(Resource, Debug)]
 pub struct ServerConfig {
-    pub id: String,          // UUID généré au démarrage
+    pub id: Uuid,          // UUID généré au démarrage
     pub port: u16,
     pub zone: String,        // ex: "zone_A"
     pub max_players: usize,
@@ -17,8 +18,7 @@ pub struct ServerConfig {
 
 impl ServerConfig {    
     pub fn from_env() -> Self {
-        use uuid::Uuid;
-        let id = Uuid::new_v4().to_string();
+        let id = Uuid::new_v4();
         
         let port = std::env::var("DS_PORT")
             .ok()
