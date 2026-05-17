@@ -1,6 +1,5 @@
 use axum::{
     Router, 
-    debug_handler, 
     routing::{
         get,
         post,
@@ -11,7 +10,10 @@ use axum::{
         Response
     }, 
     Json, 
-    extract::State
+    extract::{
+        State,
+        ConnectInfo,
+    }
 };
 
 use serde::{ 
@@ -19,11 +21,10 @@ use serde::{
     Deserialize,
 };
 
-use std::{
-    net::{
-        Ipv4Addr,
-    },
-};
+use std::net::{
+        Ipv4Addr, 
+        SocketAddr,
+    };
 
 use uuid::Uuid;
 
@@ -32,6 +33,9 @@ use log::{info, warn, error};
 
 use crate::{
     AppStateDyn,
+    redis_pool::{
+        find_server,
+    }
 };
 
 // -------------------------------------------------------------------------------------------------------------------
@@ -48,7 +52,6 @@ pub async fn router() -> Router<AppStateDyn>
 // -------------------------------------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------------------------------------
 
-#[debug_handler]
 pub async fn handler_404(
 ) -> String
 {
@@ -58,14 +61,13 @@ pub async fn handler_404(
 
 // -------------------------------------------------------------------------------------------------------------------
 
-#[debug_handler]
 pub async fn root_handler(
     State(state): State<AppStateDyn>
 ) -> (StatusCode, String)
 {
     info!("root_handler()");
 
-    let response: String = format!("hello from {}", state.data.get_name());
+    let response: String = format!("hello from {}", state.arc_mutex.lock().await.get_name());
     return (StatusCode::OK, response);
 }
 
@@ -73,16 +75,15 @@ pub async fn root_handler(
 // -------------------------------------------------------------------------------------------------------------------
 
 #[derive(Serialize)]
-struct ServiceStatus
+pub struct ServiceStatus
 {
-    status: String,
+    pub status: String,
 }
 
 // -------------------------------------------------------------------------------------------------------------------
 
-#[debug_handler]
 async fn get_status(
-    #[allow(unused)] State(state): State<AppStateDyn>
+    #[allow(unused)] State(state): State<AppStateDyn>,
 ) -> (StatusCode, Json<ServiceStatus>)
 {
     info!("get_status()");
@@ -118,9 +119,9 @@ struct LoginSuccess
 
 // TODO : move to a shared lib
 
-#[derive(Serialize)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 #[allow(non_camel_case_types, unused)]
-enum ServerZones
+pub enum ServerZone
 {
     zone_A,
     zone_B,
@@ -130,12 +131,12 @@ enum ServerZones
     // ...
 }
 
-#[derive(Serialize)]
-struct ServerInfo
+#[derive(Serialize, Deserialize)]
+pub struct ServerInfo
 {
-    ip: Ipv4Addr,
-    port: u16,
-    zone: ServerZones,
+    pub ip: Ipv4Addr,
+    pub port: u16,
+    pub zone: ServerZone,
 }
 
 // -------------------------------------------------------------------------------------------------------------------
@@ -203,12 +204,13 @@ impl IntoResponse for LoginResponse
 // -------------------------------------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------------------------------------
 
-#[debug_handler]
 async fn try_login(
+    State(state): State<AppStateDyn>,
+    ConnectInfo(sock_addr): ConnectInfo<SocketAddr>,
     Json(login_request): Json<LoginRequest>
 ) -> Response
 {
-    info!("try_login : {:?}", login_request);
+    info!("try_login : {:?} (from {})", login_request, sock_addr);
     
     let Some(player_uuid) = login_validate(&login_request).await
     else
@@ -216,7 +218,15 @@ async fn try_login(
         return LoginResponse::Unauthorized(LoginUnauthorized::default()).into_response();
     };
 
-    let Some(server_info) = login_find_server(&login_request).await
+    let mut app_state = state.arc_mutex.lock().await;
+
+
+    let Some(redis_connection_pool) = app_state.get_redis_connection_pool()
+    else
+    {
+        return LoginResponse::Unavailable(LoginUnavailable::default()).into_response();
+    };
+    let Some(server_info) = find_server(redis_connection_pool, sock_addr.ip()).await
     else
     {
         return LoginResponse::Unavailable(LoginUnavailable::default()).into_response();
@@ -247,23 +257,6 @@ async fn login_validate(login: &LoginRequest) -> Option<Uuid>
     }
 }
 
-async fn login_find_server(#[allow(unused)] login: &LoginRequest) -> Option<ServerInfo>
-{
-    if true
-    {
-        return Some(
-            ServerInfo { 
-                ip: Ipv4Addr::from_octets([1,2,3,4]), 
-                port: 32769_u16, 
-                zone: ServerZones::zone_A,
-            }
-        );
-    }
-    else
-    {
-        return None;
-    }
-}
 // -------------------------------------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------------------------------------
