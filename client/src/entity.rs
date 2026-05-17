@@ -28,7 +28,6 @@ impl Plugin for EntityPlugin
 // -------------------------------------------------------------------------------------------------------------------
 
 #[derive(Component, Default)]
-#[require(Velocity)]
 pub struct EntityTag;
 
 // -------------------------------------------------------------------------------------------------------------------
@@ -59,13 +58,14 @@ pub fn move_entities(mut entities : Query <(&mut Velocity, &mut Transform), With
 {
     for (mut velocity, mut transform) in &mut entities
     {
+        // info!("entity transform : {}", transform.translation);
+        // info!("           speed : {}", velocity.v.length());
         if velocity.v.norm_squared() > PLAYABLE_DIST_EPSILON
         {
             transform.translation += velocity.v.extend(0.0) * time.delta_secs();
                     
             transform.rotation = Quat::from_rotation_z(velocity.v.to_angle() - std::f32::consts::FRAC_PI_2);
         }
-        velocity.reset();
     }
 }
 

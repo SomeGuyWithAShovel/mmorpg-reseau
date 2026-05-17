@@ -45,7 +45,6 @@ impl Plugin for EnemyPlugin
 // -------------------------------------------------------------------------------------------------------------------
 
 #[derive(Component)]
-#[require(EntityTag)]
 pub struct EnemyTag;
 
 // -------------------------------------------------------------------------------------------------------------------
@@ -80,6 +79,18 @@ fn get_rand_border(r: f32, w: f32, h: f32) -> Vec2
     // 0.5                0.0
     //
     //  .'      0.75      '.
+
+    // 0.0 --- threshold ------- 0.25 ------- (0.5-threshold) --- 0.5 --- (0.5+threshold) ------- 0.75 ------- (1-threshold) --- 1.0
+    // then, with alpha and Vec2 in each if block :
+    // [0            ,     threshold] => (    w , [h/2,   0])
+    // [    threshold, 0.5-threshold] => ([w, 0],         0 )
+    // [0.5-threshold, 0.5+threshold] => (    0 , [  0,   h])
+    // [0.5+threshold, 1.0-threshold] => ([0, w],         h )
+    // [1.0-threshold, 1.0          ] => (    w , [h  , h/2])
+
+    // we do all that instead of just having a random int in [0,4[ then a random in [0, w or h] because :
+    // - only one call to our prng,
+    // - we want to keep the probability distribution evenly spread across the border. If we choose first in [0,4[ evenly, then if w != h, we will get too much generation on the smallest side
     
     // to preserve the w/h ratio, the top left corner may not be 0.125
     let threshold: f32 = h / ((h + w) * 4.0);
@@ -182,18 +193,22 @@ pub fn spawn_enemies(mut commands: Commands, asset_server: Res<AssetServer>, mut
         let enemy_transform : Transform = Transform::from_xyz(rand_start.x, rand_start.y, ENEMY_Z_ORDER);
 
         commands.spawn((
+
             EnemyTag,
+
+            EntityTag,
+            Velocity::default(),
+
             enemy_transform,
+
             Sprite {
                 custom_size: Some(ENEMY_DEFAULT_PARAMS.size),
                 image: asset_server.load(ENEMY_DEFAULT_PARAMS.sprite),
                 color: ENEMY_DEFAULT_PARAMS.color,
                 ..default()
             },
-            Target {
-                s: ENEMY_DEFAULT_PARAMS.speed,
-                ..Default::default()
-            },
+
+            Target::default(),
         ));
     }
     
@@ -206,16 +221,15 @@ pub fn spawn_enemies(mut commands: Commands, asset_server: Res<AssetServer>, mut
 #[derive(Component)]
 pub struct Target
 {
-    pub t: Vec2,
-    pub s: f32,
+    pub pos: Vec2,
 }
 impl Default for Target 
 {
-    fn default() -> Self { return Self {t: Vec2::NAN, s: 0.0}; }     
+    fn default() -> Self { return Self {pos: Vec2::NAN}; }     
 }
 impl Target {
-    pub fn invalid(&self) -> bool { return self.t == Vec2::NAN; }
-    pub fn set_invalid(&mut self) { self.t = Vec2::NAN; }
+    pub fn invalid(&self) -> bool { return self.pos == Vec2::NAN; }
+    pub fn set_invalid(&mut self) { self.pos = Vec2::NAN; }
 }
 
 // -------------------------------------------------------------------------------------------------------------------
@@ -225,7 +239,7 @@ pub fn enemies_target_player(player: Single<&Transform, With<PlayerTag>>, enemie
 {
     for mut target in enemies
     {
-        target.t = player.translation.xy();
+        target.pos = player.translation.xy();
     }
 }
 
@@ -235,12 +249,13 @@ pub fn enemies_set_velocity_to_target(mut enemies : Query <(&Transform, &Target,
 {
     for (transform, target, mut velocity) in &mut enemies
     {
-        if (!target.invalid()) && (target.s > PLAYABLE_DIST_EPSILON)
+        if target.invalid() == false
         {
-            let new_velocity_dir = target.t - transform.translation.xy();
+            let new_velocity_dir = target.pos - transform.translation.xy();
             if new_velocity_dir.norm_squared() > PLAYABLE_DIST_EPSILON
             {
-                velocity.v = new_velocity_dir.normalize() * target.s;
+                velocity.v = new_velocity_dir.normalize() * ENEMY_DEFAULT_PARAMS.speed;
+                // info!("ennemy speed : {}", velocity.v.length());
             }
             else
             {

@@ -43,7 +43,6 @@ impl Plugin for PlayerPlugin
 // -------------------------------------------------------------------------------------------------------------------
 
 #[derive(Component)]
-#[require(EntityTag, PlayerActionHolder)]
 pub struct PlayerTag;
 
 // -------------------------------------------------------------------------------------------------------------------
@@ -205,7 +204,12 @@ pub fn player_process_actions(mut player: Single<(&mut PlayerActionHolder, &mut 
     let move_dir = actions.get_move_dir();
     if move_dir.length_squared() > PLAYABLE_DIST_EPSILON
     {
-        velocity.v += move_dir * speed;
+        velocity.v = move_dir * speed;
+        // info!("player_speed : {}", velocity.v.length());
+    }
+    else
+    {
+        velocity.reset();
     }
 
     actions.clear_acts();
@@ -228,14 +232,22 @@ pub fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>)
 
     // player
     commands.spawn((
+
         PlayerTag,
+
+        EntityTag,
+        Velocity::default(),
+
         PLAYER_DEFAULT_PARAMS.transform,
+
         Sprite {
             custom_size: Some(PLAYER_DEFAULT_PARAMS.size),
             image: asset_server.load(PLAYER_DEFAULT_PARAMS.sprite),
             color: PLAYER_DEFAULT_PARAMS.color,
             ..default()
         },
+
+        PlayerActionHolder::default(),
     ));
 }
 
