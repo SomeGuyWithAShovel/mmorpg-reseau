@@ -1,15 +1,17 @@
+# FOR WINDOWS POWERSHELL
+#
+# curl.exe instead of curl
+# ` is the escape character, used to have a single command in multiple lines
+# "\`"" is an escaped " surrounded by " (it would be "\"" in C/C++)
 
+curl.exe -i "http://localhost:3000"
 
-Starting Server (127.0.0.1:PORT_NUMBER)
-[2026-05-11T19:37:03Z INFO  mmo_gatekeeper] Listening on address 127.0.0.1:PORT_NUMBER
-[2026-05-11T19:37:35Z INFO  mmo_gatekeeper] handler||
-[2026-05-11T19:37:41Z INFO  mmo_gatekeeper::routes] route_handler
-[2026-05-11T19:37:43Z INFO  mmo_gatekeeper::routes] on_404()
+curl.exe -i "http://localhost:3000/health"
 
-PS > curl.exe http://localhost:PORT_NUMBER/
-Hello, World!
-PS > curl.exe http://localhost:PORT_NUMBER/routes
-<h1>route_handler</h1>
-PS > curl.exe http://localhost:PORT_NUMBER/rout
-404 string
+curl.exe -i "http://localhost:3000/login" `
+-H "Content-Type: application/json" `
+-d "{\`"username\`":\`"testname\`",\`"password\`":\`"testpassword\`"}"
 
+curl.exe -i "http://localhost:3000/login" `
+-H "Content-Type: application/json" `
+-d "{\`"username\`":\`"testname\`",\`"password\`":\`"1234\`"}"
