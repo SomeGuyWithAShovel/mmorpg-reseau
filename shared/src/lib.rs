@@ -3,6 +3,7 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use uuid::Uuid;
 pub const SECONDS_BETWEEN_HEARTBEATS : f32 = 5.0;
 
+#[derive(Debug)]
 pub struct Heartbeat {
     pub id : Uuid,
     pub addr : SocketAddr,
@@ -19,11 +20,11 @@ impl Heartbeat {
         // zone : arbitraire, on range length de longueur 8 puis la donnée
         // player_count, 8 octets
         // On vérifie quand même
-        
-        let len = 16 + 1 + 16 + 2 + 32 + 8;
-        let mut res = BytesMut::with_capacity(len);
 
         let Self{id, addr, zone, player_count, is_full} = self;
+        
+        let len = 16 + 1 + 16 + 2 + 8 + zone.len() + 8;
+        let mut res = BytesMut::with_capacity(len);
 
         res.put_slice(id.as_bytes());
         let bools = (addr.is_ipv4() as u8) | (*is_full as u8) << 1;
@@ -71,8 +72,8 @@ impl Heartbeat {
         }
 
         let str_len = data.get_u64();
-        let mut bytes_vec = Vec::with_capacity(str_len as usize);
-        data.copy_to_slice(&mut bytes_vec);
+        let mut bytes_vec : Vec<u8> = vec![0; str_len as usize];
+        data.copy_to_slice(&mut bytes_vec[..]);
 
         let res_zone = String::from_utf8(bytes_vec);
         let Ok(zone) = res_zone else { return None; };
