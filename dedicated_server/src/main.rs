@@ -48,9 +48,9 @@ fn main() {
         .add_plugins(MinimalPlugins)
         .insert_resource(ServerConfig::from_env())
         .insert_resource(HeartbeatTimer(Timer::from_seconds(SECONDS_BETWEEN_HEARTBEATS , TimerMode::Repeating)))
-        .add_systems(Startup, (bind_socket, send_heartbeat).chain())
+        .add_systems(Startup, bind_socket.chain())
         .add_systems(Startup, debug_info)
-        .add_systems(Update, (receive_packets, send_heartbeat).chain())
+        .add_systems(Update, (receive_packets, send_heartbeat_periodically).chain())
         .run();
 }
 
@@ -91,8 +91,10 @@ fn bind_socket(mut commands : Commands, config : Res<ServerConfig>) -> Result {
 
 
 
-fn receive_packets(mut peer_res : ResMut<DedicatedServerPeer>,
-                   mut player_registry : ResMut<PlayerRegistry>) -> Result {
+fn receive_packets(
+    config : Res<ServerConfig>,
+    mut peer_res : ResMut<DedicatedServerPeer>,
+    mut player_registry : ResMut<PlayerRegistry>) -> Result {
     if let Some(event) = peer_res.peer.poll()? {
         match event {
             GameNetworkEvent::Connected(connection) => {
@@ -152,6 +154,7 @@ fn receive_packets(mut peer_res : ResMut<DedicatedServerPeer>,
                 if !peer_res.orchestrator.is_some() {
                     println!("Création du stream avec l'orchestrateur : {:?}", connection);
                     peer_res.orchestrator = Some(OrchestratorConnection{connection, stream});
+                    send_heartbeat(player_registry.into(), config, peer_res);
                 }
             }
             GameNetworkEvent::StreamClosed(_connection, _stream) => {
@@ -168,6 +171,32 @@ fn receive_packets(mut peer_res : ResMut<DedicatedServerPeer>,
 
 
 fn send_heartbeat(
+    player_registry : Res<PlayerRegistry>,
+    config : Res<ServerConfig>,
+    peer_res : ResMut<DedicatedServerPeer>) -> Result {
+    
+    if let Some(orchestrator) = &peer_res.orchestrator {
+        let player_count = player_registry.players.len();
+        let is_full = player_count == config.max_players;
+        let ip = IpAddr::from_str(get_own_ip())?;
+        let ds_address = SocketAddr::new(ip, config.port);
+        
+        peer_res.heartbeat_peer.send(
+            &orchestrator.connection,
+            &orchestrator.stream,
+            Heartbeat{
+                id: config.id.clone(),
+                addr: ds_address,
+                zone: config.zone.clone(),
+                player_count,
+                is_full,
+            }.to_bytes(),
+        )?;
+    }
+    Ok(())
+}
+
+fn send_heartbeat_periodically(
     time: Res<Time>,
     mut timer: ResMut<HeartbeatTimer>,
     player_registry : Res<PlayerRegistry>,
@@ -175,24 +204,9 @@ fn send_heartbeat(
     peer_res : ResMut<DedicatedServerPeer>) -> Result {
     
     if timer.0.tick(time.delta()).just_finished() {
-        if let Some(orchestrator) = &peer_res.orchestrator {
-            let player_count = player_registry.players.len();
-            let is_full = player_count == config.max_players;
-            let ip = IpAddr::from_str(get_own_ip())?;
-            let ds_address = SocketAddr::new(ip, config.port);
-            
-            peer_res.heartbeat_peer.send(
-                &orchestrator.connection,
-                &orchestrator.stream,
-                Heartbeat{
-                    id: config.id.clone(),
-                    addr: ds_address,
-                    zone: config.zone.clone(),
-                    player_count,
-                    is_full,
-                }.to_bytes(),
-            )?;
-        }
+        return send_heartbeat(player_registry, config, peer_res);
     }
-    Ok(())
+    else {
+        Ok(())
+    }
 }
