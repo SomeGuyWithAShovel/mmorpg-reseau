@@ -246,7 +246,7 @@ async fn login_validate(login: &LoginRequest) -> Option<Uuid>
     // but here, where it should be used (to query the user DB), not globally with a macro when declaring the field of the LoginRequest struct
 
     // password hashing ?
-    // query some DB to find UUID ?
+    // query some DB to find player UUID ?
     if login.password == "1234"
     {
         return Some(Uuid::new_v4());
