@@ -1,0 +1,65 @@
+# Redis Service Install + Launch Instructions
+
+## Docker Installation
+Docker is needed (app image, docker desktop, WSL, ..., it depends).
+
+## Redis Container Installation/Setup
+
+#### installs then runs it with the correct configuration if the container doesn't already exist
+docker run -d --name redis-mmorpg -p 6379:6379 redis:7-alpine
+
+#### list all the RUNNING containers
+docker ps
+
+#### list all the containers, running or not
+docker ps -a
+
+#### stop a running container
+docker stop redis-mmorpg
+
+#### restarts a stopped container
+docker restart redis-mmorpg
+
+#### deletes the container (docker restart won't work ; need to docker run ...)
+docker rm redis-mmorpg
+
+
+
+## WSL Specific
+
+#### list all the WSL distributions
+wsl -l -v
+
+#### terminate a running WSL distribution
+wsl -t <distribution-name>
+
+
+
+## Redis Container Usage
+
+#### execute a command inside the Redis Container
+docker exec redis-mmorpg <your-command>
+ex: docker exec redis-mmorpg redis-cli KEYS "server:*"
+also, a CLI is integrated inside docker desktop, and inside, raw commands are usable (no need to docker exec ...)
+
+## Redis cli commands (use docker exec ... to execute them)
+https://redis.io/docs/latest/commands
+
+
+#### list all keys
+redis-cli KEYS "*"
+
+#### set a key-value
+redis-cli SET "key" "value"
+
+#### get a value from a key
+redis-cli GET "key"
+
+#### get the TTL of a key-value (time to leave = time until auto-deletion)
+redis-cli TTL "key"
+-1 : key exists but with infinite duration
+-2 : key doesn't exists
+
+#### removes a key-value
+redis-cli DEL "key"
+
