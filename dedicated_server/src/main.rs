@@ -9,6 +9,11 @@ use game_sockets::*;
 use game_sockets::protocols::{QuicBackend, UdpBackend};
 use bytes::Bytes;
 
+/* 
+ *  Écrit à l'aide des exemples issus du dossier game_sockets/bin
+ */
+
+
 // TODO : PlayerInfo doit contenir le DedicatedServerPeer
 pub struct PlayerInfo {
     // S'il y a pas de username, le joueur n'a pas join
@@ -55,19 +60,21 @@ fn main() {
 }
 
 fn debug_info(config : Res<ServerConfig>) {
-    println!("{:?}", config);
+    info!("Config serveur : {:?}", config);
     if let Ok(ip) = IpAddr::from_str(get_own_ip()) {
         let ds_address = SocketAddr::new(ip, config.port);
-        println!("{:?}", Heartbeat{
+        let hb = Heartbeat{
             id: config.id.clone(),
             addr: ds_address,
             zone: config.zone.clone(),
             player_count: 0,
             is_full: false,
-        }.to_bytes().to_vec());
+        };
+        info!("Heartbeat : {:?}", hb);
+        info!("Heartbeat en octets : {:?}", hb.to_bytes().to_vec());
     }
     else {
-        println!("Adresse localhost invalide ?");
+        error!("Adresse localhost invalide ?");
     }
 }
 
@@ -89,8 +96,6 @@ fn bind_socket(mut commands : Commands, config : Res<ServerConfig>) -> Result {
     Ok(())
 }
 
-
-
 fn receive_packets(
     config : Res<ServerConfig>,
     mut peer_res : ResMut<DedicatedServerPeer>,
@@ -98,10 +103,10 @@ fn receive_packets(
     if let Some(event) = peer_res.peer.poll()? {
         match event {
             GameNetworkEvent::Connected(connection) => {
-                println!("Connexion client : {:?}", connection);
+                info!("Connexion client : {:?}", connection);
             }
             GameNetworkEvent::Disconnected(connection) => {
-                println!("Déconnexion client {:?}", connection);
+                info!("Déconnexion client {:?}", connection);
                 player_registry.players.remove(&connection);
             }
             GameNetworkEvent::Message{ connection, stream, data } => {
@@ -117,7 +122,7 @@ fn receive_packets(
                     }
                 }
                 else {
-                    println!("Donnée non UTF8 envoyée par {:?}", connection);
+                    warn!("Donnée non UTF8 envoyée par {:?}", connection);
                 }
             }
             GameNetworkEvent::StreamCreated(_, _) => {}
@@ -125,7 +130,7 @@ fn receive_packets(
                 player_registry.players.remove(&connection);
             }
             GameNetworkEvent::Error { connection:_connection, inner } => {
-                println!("Erreur du client : {:?}", inner);
+                error!("Erreur du client : {:?}", inner);
             }
         }
     }
@@ -141,25 +146,25 @@ fn receive_packets(
             }
             GameNetworkEvent::Message{ connection:_, stream:_, data } => {
                 if let Ok(msg) = str::from_utf8(&data[..]) {
-                    println!("Message de l'orchestrateur : {}", msg);
+                    info!("Message de l'orchestrateur : {}", msg);
                 }
                 else {
-                    println!("Message de l'orchestrateur reçu (non convertible en utf8: {:?}", data);
+                    info!("Message de l'orchestrateur reçu (non convertible en utf8: {:?}", data);
                 }
             }
             GameNetworkEvent::Error { connection:_, inner } => {
-                println!("Erreur de l'orchestrateur : {:?}", inner);
+                error!("Erreur de l'orchestrateur : {:?}", inner);
             }
             GameNetworkEvent::StreamCreated(connection, stream) => {
                 if !peer_res.orchestrator.is_some() {
-                    println!("Création du stream avec l'orchestrateur : {:?}", connection);
+                    info!("Création du stream avec l'orchestrateur : {:?}", connection);
                     peer_res.orchestrator = Some(OrchestratorConnection{connection, stream});
-                    send_heartbeat(player_registry.into(), config, peer_res);
+                    send_heartbeat(player_registry.into(), config, peer_res)?;
                 }
             }
             GameNetworkEvent::StreamClosed(_connection, _stream) => {
                 if let Some(_) = &peer_res.orchestrator {
-                    println!("Stream de l'orchestrateur fermé ?");
+                    info!("Stream de l'orchestrateur fermé ?");
                     peer_res.orchestrator = None;
                 }
             }
@@ -180,18 +185,19 @@ fn send_heartbeat(
         let is_full = player_count == config.max_players;
         let ip = IpAddr::from_str(get_own_ip())?;
         let ds_address = SocketAddr::new(ip, config.port);
+
+        let hb = Heartbeat{
+            id: config.id.clone(),
+            addr: ds_address,
+            zone: config.zone.clone(),
+            player_count,
+            is_full,
+        };
         
-        peer_res.heartbeat_peer.send(
-            &orchestrator.connection,
-            &orchestrator.stream,
-            Heartbeat{
-                id: config.id.clone(),
-                addr: ds_address,
-                zone: config.zone.clone(),
-                player_count,
-                is_full,
-            }.to_bytes(),
-        )?;
+        info!("Envoi du heartbeat: {:?}", hb);
+
+        let OrchestratorConnection{connection, stream} = orchestrator;
+        peer_res.heartbeat_peer.send(connection, stream, hb.to_bytes())?;
     }
     Ok(())
 }
@@ -204,9 +210,7 @@ fn send_heartbeat_periodically(
     peer_res : ResMut<DedicatedServerPeer>) -> Result {
     
     if timer.0.tick(time.delta()).just_finished() {
-        return send_heartbeat(player_registry, config, peer_res);
+        send_heartbeat(player_registry, config, peer_res)?;
     }
-    else {
-        Ok(())
-    }
+    Ok(())    
 }

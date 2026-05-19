@@ -13,3 +13,5 @@ game_sockets = { path = "../game_sockets" }
 shared = { path = "../shared/" }
 uuid = { version = "1.23.1", features = ["v4"]}
 bytes = "1"
+log = "0.4"
+env_logger = "0.11"
