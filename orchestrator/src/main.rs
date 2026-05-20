@@ -17,7 +17,7 @@ const FIRST_SERVER_PORT : u16 = 8080;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-
+    env_logger::init();
     // Récupération des variables d'environnement
     let hot_servers_min = std::env::var("HOT_SERVERS_MIN")
         .ok()
@@ -128,7 +128,7 @@ async fn count_available_servers(conn : &mut r2d2::PooledConnection<redis::Clien
     
     if let Ok(servers) = conn.keys("server:*") {
         for server in servers {
-            if let Ok(server_info) = conn.hget(server, "status") && let Some(availability) = server_info {
+            if let Ok(opt_status) = conn.hget(server, "status") && let Some(availability) = opt_status {
                 if availability == "available" {
                     count += 1;
                 }
