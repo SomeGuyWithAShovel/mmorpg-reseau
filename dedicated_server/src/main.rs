@@ -9,15 +9,10 @@ use game_sockets::*;
 use game_sockets::protocols::{QuicBackend, UdpBackend};
 use bytes::Bytes;
 
-<<<<<<< Updated upstream
-// TODO : PlayerInfo doit contenir le DedicatedServerPeer
-=======
 /* 
  *  Écrit à l'aide des exemples issus du dossier game_sockets/bin
  */
 
-
->>>>>>> Stashed changes
 pub struct PlayerInfo {
     // S'il y a pas de username, le joueur n'a pas join
     username : String,
@@ -99,19 +94,12 @@ fn bind_socket(mut commands : Commands, config : Res<ServerConfig>) -> Result {
     Ok(())
 }
 
-<<<<<<< Updated upstream
 
-
-fn receive_packets(mut peer_res : ResMut<DedicatedServerPeer>,
-                   mut player_registry : ResMut<PlayerRegistry>) -> Result {
-    if let Some(event) = peer_res.peer.poll()? {
-=======
 fn receive_packets(
     config : Res<ServerConfig>,
     mut peer_res : ResMut<DedicatedServerPeer>,
     mut player_registry : ResMut<PlayerRegistry>) -> Result {
     while let Some(event) = peer_res.peer.poll()? {
->>>>>>> Stashed changes
         match event {
             GameNetworkEvent::Connected(connection) => {
                 println!("Connexion client : {:?}", connection);
@@ -170,10 +158,7 @@ fn receive_packets(
                 if !peer_res.orchestrator.is_some() {
                     println!("Création du stream avec l'orchestrateur : {:?}", connection);
                     peer_res.orchestrator = Some(OrchestratorConnection{connection, stream});
-<<<<<<< Updated upstream
-=======
                     send_heartbeat(&player_registry, &config, &peer_res)?;
->>>>>>> Stashed changes
                 }
             }
             GameNetworkEvent::StreamClosed(_connection, _stream) => {
@@ -189,8 +174,6 @@ fn receive_packets(
 }
 
 fn send_heartbeat(
-<<<<<<< Updated upstream
-=======
     player_registry : &PlayerRegistry,
     config : &ServerConfig,
     peer_res : &DedicatedServerPeer) -> Result {
@@ -218,37 +201,14 @@ fn send_heartbeat(
 }
 
 fn send_heartbeat_periodically(
->>>>>>> Stashed changes
     time: Res<Time>,
     mut timer: ResMut<HeartbeatTimer>,
     player_registry : Res<PlayerRegistry>,
     config : Res<ServerConfig>,
     peer_res : ResMut<DedicatedServerPeer>) -> Result {
     
-<<<<<<< Updated upstream
-    if timer.0.tick(time.delta()).just_finished() {
-        if let Some(orchestrator) = &peer_res.orchestrator {
-            let player_count = player_registry.players.len();
-            let is_full = player_count == config.max_players;
-            let ip = IpAddr::from_str(get_own_ip())?;
-            let ds_address = SocketAddr::new(ip, config.port);
-            
-            peer_res.heartbeat_peer.send(
-                &orchestrator.connection,
-                &orchestrator.stream,
-                Heartbeat{
-                    id: config.id.clone(),
-                    addr: ds_address,
-                    zone: config.zone.clone(),
-                    player_count,
-                    is_full,
-                }.to_bytes(),
-            )?;
-        }
-=======
     if timer.0.tick(time.delta()).just_finished() {t
         send_heartbeat(&player_registry, &config, &peer_res)?;
->>>>>>> Stashed changes
     }
     Ok(())
 }
