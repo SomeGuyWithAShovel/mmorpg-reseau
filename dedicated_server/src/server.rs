@@ -46,7 +46,7 @@ impl ServerConfig {
                 .map(|s| Ipv4Addr::from_str(s.as_str()).ok())
                 .flatten()
                 .map(IpAddr::from)
-                .map(|ipv4| SocketAddr::new(ipv4, orch_port))
+                .map(|ip| SocketAddr::new(ip, orch_port))
                 .unwrap_or(SocketAddr::new(IpAddr::from(DEFAULT_ADDRESS), orch_port)),
         }
     }
