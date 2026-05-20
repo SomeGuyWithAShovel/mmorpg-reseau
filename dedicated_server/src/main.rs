@@ -51,13 +51,8 @@ fn main() {
         .add_plugins(MinimalPlugins)
         .insert_resource(ServerConfig::from_env())
         .insert_resource(HeartbeatTimer(Timer::from_seconds(SECONDS_BETWEEN_HEARTBEATS , TimerMode::Repeating)))
-<<<<<<< Updated upstream
-        .add_systems(Startup, (bind_socket, send_heartbeat).chain())
-=======
-        .add_systems(Startup, bind_socket)
->>>>>>> Stashed changes
-        .add_systems(Startup, debug_info)
-        .add_systems(Update, (receive_packets, send_heartbeat).chain())
+        .add_systems(Startup, (bind_socket, debug_info))
+        .add_systems(Update, (receive_packets, send_heartbeat_periodically).chain())
         .run();
 }
 
@@ -207,7 +202,7 @@ fn send_heartbeat_periodically(
     config : Res<ServerConfig>,
     peer_res : ResMut<DedicatedServerPeer>) -> Result {
     
-    if timer.0.tick(time.delta()).just_finished() {t
+    if timer.0.tick(time.delta()).just_finished() {
         send_heartbeat(&player_registry, &config, &peer_res)?;
     }
     Ok(())
