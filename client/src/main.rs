@@ -3,6 +3,7 @@ mod entity;
 mod input;
 mod player;
 mod enemy;
+mod connection;
 
 // -------------------------------------------------------------------------------------------------------------------
 
@@ -33,9 +34,7 @@ fn main()
 
     app.add_plugins(entity::EntityPlugin);
     app.add_plugins(player::PlayerPlugin);
-    app.add_plugins(enemy::EnemyPlugin);
-    
-    
+    app.add_plugins(connection::ConnectionPlugin);
 
     app.run();
 
