@@ -217,7 +217,7 @@ pub fn player_process_actions(mut player: Single<(&mut PlayerActionHolder, &mut 
 #[derive(Bundle, Default)]
 struct PlayerBundle(EntityTag, Velocity, Transform, Sprite, PlayerActionHolder);
 
-fn spawn_player<'a>(id: u64, commands : &'a mut Commands, asset_server : &AssetServer) -> EntityCommands<'a> {
+pub fn spawn_player<'a>(id: u64, commands : &'a mut Commands, asset_server : &AssetServer) -> EntityCommands<'a> {
     commands.spawn(PlayerBundle(
         EntityTag(id),
         Velocity::default(),

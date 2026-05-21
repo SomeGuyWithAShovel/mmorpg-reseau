@@ -4,7 +4,7 @@ use tokio::runtime::Builder;
 use uuid::Uuid;
 use shared::*;
 use crate::entity::EntityTag;
-use crate::player::LocalPlayerTag;
+use crate::player::{LocalPlayerTag, spawn_player};
 use bytes::*;
 use bevy::prelude::*;
 use std::collections::HashMap;
@@ -202,7 +202,7 @@ fn send_packets(local_player : Single<(&EntityTag, &Transform), With<LocalPlayer
     Ok(())
 }
 
-fn reajust_position(mut msg_reader : MessageReader<ServerMessage>, mut query : Query<(&EntityTag, &mut Transform), Without<LocalPlayerTag>>) {
+fn reajust_position(mut msg_reader : MessageReader<ServerMessage>, mut query : Query<(&EntityTag, &mut Transform), Without<LocalPlayerTag>>, mut commands : Commands, asset_server : Res<AssetServer>) {
     let mut map = HashMap::<u64, Transform>::new();
     for msg in msg_reader.read() {
         match msg {            
@@ -216,6 +216,15 @@ fn reajust_position(mut msg_reader : MessageReader<ServerMessage>, mut query : Q
         if let Some(new_transform) = map.get(id) {
             transform.translation = new_transform.translation;
             transform.rotation = new_transform.rotation;
+            map.remove(id);
         }
+    }
+
+    // Entitées non encore créees
+    for (id, transform) in map {
+        spawn_player(id, &mut commands, &asset_server).entry::<Transform>().and_modify(move |mut t| {
+            t.translation = transform.translation;
+            t.rotation = transform.rotation;
+        });
     }
 }
