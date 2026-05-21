@@ -94,6 +94,9 @@ pub struct AppStateDyn
 #[tokio::main]
 async fn main()
 {
+    // allow info!() logging without needing to set any environment variables
+    env_logger::Builder::new().filter_level(log::LevelFilter::Info).parse_default_env().init();
+    
     // TODO : from env variables
     let service_state_arcmutex = Arc::new(Mutex::new(
         
@@ -113,9 +116,6 @@ async fn main()
         let mut service_state = service_state_arcmutex.lock().await;
     
         println!("Starting {} (on {})", service_state.name, service_state.sock_addr);
-
-        // allow info!() logging without needing to set any environment variables
-        env_logger::Builder::new().filter_level(log::LevelFilter::Info).parse_default_env().init();
 
         service_state.redis_connection_pool = redis_pool::create_redis_pool(REDIS_CLIENT_STRING).await;
         
