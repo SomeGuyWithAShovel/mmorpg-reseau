@@ -94,42 +94,55 @@ pub struct AppStateDyn
 #[tokio::main]
 async fn main()
 {
-    // TODO : from env variables
-    let mut service_state = AppStateData {
-        name: String::from(SERVICE_NAME),
-        sock_addr: LISTEN_SOCK_ADDR_V4,
-        redis_connection_pool: None,
-    };
-    
-    println!("Starting {} (on {})", service_state.name, service_state.sock_addr);
-
     // allow info!() logging without needing to set any environment variables
     env_logger::Builder::new().filter_level(log::LevelFilter::Info).parse_default_env().init();
     
-    let Ok(listener) = tokio::net::TcpListener::bind(service_state.sock_addr).await 
-    else 
-    {
-        panic!("Couldn't bind TCP socket on address {}", service_state.sock_addr);
-    };
+    // TODO : from env variables
+    let service_state_arcmutex = Arc::new(Mutex::new(
+        
+        AppStateData {
+            name: String::from(SERVICE_NAME),
+            sock_addr: LISTEN_SOCK_ADDR_V4,
+            redis_connection_pool: None,
+        }
+    ));
+    
+    // I need a scope for accessing the service_state inside the arc_mutex,
+    // I need the data inside that service_state to create the TCP socketn
+    // but I need the TcpListener to outlive the scope of the mutex.
 
-    info!("Listening on address {}", service_state.sock_addr);
+    let listener = {
+
+        let mut service_state = service_state_arcmutex.lock().await;
     
-    service_state.redis_connection_pool = redis_pool::create_redis_pool(REDIS_CLIENT_STRING).await;
-    
-    {
-        let Some(redis_connection_pool) = &service_state.redis_connection_pool
+        println!("Starting {} (on {})", service_state.name, service_state.sock_addr);
+
+        service_state.redis_connection_pool = redis_pool::create_redis_pool(REDIS_CLIENT_STRING).await;
+        
+        {
+            let Some(redis_connection_pool) = &service_state.redis_connection_pool
+            else 
+            {
+                panic!("Couldn't create redis client \"{}\"", REDIS_CLIENT_STRING);
+            };
+
+            if redis_pool::add_raw_kv_ttl_with_check(&redis_connection_pool, "ping", "pong", TIMEOUT_DURATION.as_secs() * 3).await == false
+            {
+                panic!("Couldn't ping redis client \"{}\" before {} seconds timeout", REDIS_CLIENT_STRING, redis_pool::TIMEOUT_DURATION.as_secs_f32());
+            }
+        }
+
+        let Ok(listener) = tokio::net::TcpListener::bind(service_state.sock_addr).await 
         else 
         {
-            panic!("Couldn't create redis client \"{}\"", REDIS_CLIENT_STRING);
+            panic!("Couldn't bind TCP socket on address {}", service_state.sock_addr);
         };
 
-        if redis_pool::add_raw_kv_ttl_with_check(&redis_connection_pool, "ping", "pong", TIMEOUT_DURATION.as_secs() * 3).await == false
-        {
-            panic!("Couldn't ping redis client \"{}\" before {} seconds timeout", REDIS_CLIENT_STRING, redis_pool::TIMEOUT_DURATION.as_secs_f32());
-        }
-    }
+        info!("Listening on address {}", service_state.sock_addr);
 
-
+        listener
+    };
+    
     // non mut, so we configure it in a single chain (app = r.foo().bar().foo2()... ; // app is now immutable)
     let app = Router::new() 
     
@@ -142,7 +155,7 @@ async fn main()
         .merge(handlers::router().await) 
         
         // dependency injection, AFTER adding the different routers with handlers that uses it, not before
-        .with_state(AppStateDyn { arc_mutex: Arc::new(Mutex::new(service_state.clone())) } )  
+        .with_state(AppStateDyn { arc_mutex: service_state_arcmutex.clone() } )  
 
         // handler for errors
         .fallback(handlers::handler_404)
@@ -162,7 +175,10 @@ async fn main()
 
         .await.unwrap()
     ;
-    
+
+    // no scope : we keep the lock until we return
+    let service_state = service_state_arcmutex.lock().await;
+
     println!("Stopping Server ({})", service_state.sock_addr);
     info!("end of main() reached");
 

@@ -31,10 +31,13 @@ use uuid::Uuid;
 #[allow(unused)]
 use log::{info, warn, error};
 
+#[allow(unused)]
 use crate::{
     AppStateDyn,
     redis_pool::{
         find_server,
+        test_redis_hget_hset,
+        get_first_key_matching_pattern_and_cond
     }
 };
 
@@ -62,13 +65,37 @@ pub async fn handler_404(
 // -------------------------------------------------------------------------------------------------------------------
 
 pub async fn root_handler(
-    State(state): State<AppStateDyn>
+    State(state_injected): State<AppStateDyn>
 ) -> (StatusCode, String)
 {
     info!("root_handler()");
 
-    let response: String = format!("hello from {}", state.arc_mutex.lock().await.get_name());
-    return (StatusCode::OK, response);
+    #[allow(unused_mut)]
+    let mut state = state_injected.arc_mutex.lock().await;
+
+    return (StatusCode::OK, format!("hello from {}", state.get_name()));
+
+    #[allow(unreachable_code)]
+    let Some(_pool) = state.get_redis_connection_pool()
+    else
+    {
+        return (StatusCode::SERVICE_UNAVAILABLE, "redis not found".to_string());
+    };
+
+    /*
+    // TEST HGET AND HSET
+    let result = test_redis_hget_hset(_pool).await;
+    if let Err(_err) = result { return (StatusCode::SERVICE_UNAVAILABLE, _err); }
+    return (StatusCode::OK, result.unwrap());
+    */
+
+    /*
+    // TEST SCAN_MATCH AND ASYNC_ITER
+    let Some(result) = get_first_key_matching_pattern_and_cond(&_pool, "server:*", |_str|{_str=="server:1234"}).await
+    else { return (StatusCode::SERVICE_UNAVAILABLE, "get_first_matching_cond error".to_string()); };
+    return (StatusCode::OK, result);
+    */
+
 }
 
 // -------------------------------------------------------------------------------------------------------------------
@@ -83,7 +110,7 @@ pub struct ServiceStatus
 // -------------------------------------------------------------------------------------------------------------------
 
 async fn get_status(
-    #[allow(unused)] State(state): State<AppStateDyn>,
+    #[allow(unused)] State(state_injected): State<AppStateDyn>,
 ) -> (StatusCode, Json<ServiceStatus>)
 {
     info!("get_status()");
@@ -205,7 +232,7 @@ impl IntoResponse for LoginResponse
 // -------------------------------------------------------------------------------------------------------------------
 
 async fn try_login(
-    State(state): State<AppStateDyn>,
+    State(state_injected): State<AppStateDyn>,
     ConnectInfo(sock_addr): ConnectInfo<SocketAddr>,
     Json(login_request): Json<LoginRequest>
 ) -> Response
@@ -218,10 +245,10 @@ async fn try_login(
         return LoginResponse::Unauthorized(LoginUnauthorized::default()).into_response();
     };
 
-    let mut app_state = state.arc_mutex.lock().await;
+    let mut state = state_injected.arc_mutex.lock().await;
 
 
-    let Some(redis_connection_pool) = app_state.get_redis_connection_pool()
+    let Some(redis_connection_pool) = state.get_redis_connection_pool()
     else
     {
         return LoginResponse::Unavailable(LoginUnavailable::default()).into_response();
