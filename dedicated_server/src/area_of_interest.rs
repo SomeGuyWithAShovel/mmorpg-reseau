@@ -1,10 +1,15 @@
 use bevy::{
     prelude::*,
 };
+use bytes::{BufMut, BytesMut};
 
 use crate::{
-    sockets::PlayerId,
+    entity::*,
     player::*,
+    sockets::{
+        DedicatedServerPeer,
+        PlayerRegistry,
+    },
 };
 
 // -------------------------------------------------------------------------------------------------------------------
@@ -38,29 +43,30 @@ impl Plugin for AreaOfInterestPlugin
  */
 
 #[derive(Component, Default)]
-pub struct PlayerListOfPlayersInAreaOfInterest
+pub struct AreaOfInterestEntities
 {
-    id_list: Vec<PlayerId>,
+    pub list: Vec<EntityId>,
+    // multiple lists for multiple levels of interest
 }
 
 
 // -------------------------------------------------------------------------------------------------------------------
 
 pub fn update_relevant_entitiies(
-    mut players: Query<(&Transform, &PlayerTag, &mut PlayerListOfPlayersInAreaOfInterest)>, 
-    others: Query<(&Transform, &PlayerTag)>
+    mut players: Query<(&EntityTag, &Transform, &mut AreaOfInterestEntities), With<PlayerTag>>, 
+    entities: Query<(&EntityTag, &Transform)>
 )
 {
-    for (transform, player, mut relevant_players) in &mut players
+    for (player_entity, player_transform, mut relevant_entities) in &mut players
     {
-        relevant_players.id_list.clear();
+        relevant_entities.list.clear();
 
-        for (other_transform, other_player) in &others
+        for (other_entity, other_transform) in &entities
         {
-            if (player.id != other_player.id) && 
-               (other_transform.translation - transform.translation).length_squared() <= AREA_OF_INTEREST_DIST_SQUARED
+            if (player_entity.id != other_entity.id) && 
+               (other_transform.translation - player_transform.translation).length_squared() <= AREA_OF_INTEREST_DIST_SQUARED
             {
-                relevant_players.id_list.push(other_player.id.clone());
+                relevant_entities.list.push(player_entity.id.clone());
             }
         }
     }
@@ -68,26 +74,67 @@ pub fn update_relevant_entitiies(
 }
 
 pub fn send_relevant_entities(
-    players: Query<(&PlayerTag, &PlayerListOfPlayersInAreaOfInterest)>,
-    others: Query<(&Transform, &PlayerTag)>
+    players: Query<(&PlayerTag, &AreaOfInterestEntities)>,
+    entities: Query<(&EntityTag, &Transform)>,
+    peer_res : Res<DedicatedServerPeer>,
+    player_registry : Res<PlayerRegistry>,
 )
 {
-    for (player, relevant_players) in players
+    for (player, relevant_entities) in players
     {
-        let mut data_to_send : Vec<(PlayerId, Transform)> = vec![];
+        // it should be [u16,u16,16] representing [x,y,angle], with a mapping [f32,f32] => [u16,u16] and f32[0,2*PI] => [0,65535]
+        // right now, it's only [f32, f32]
+        let mut data_to_send : Vec<(EntityId, Vec2)> = vec![];
 
-        // we filter the result of the bevy query "others" to contains only "(transform, player_tag)"" where "player_tag.id" is in "relevant_players.id_list"
-        let relevant_players_data = others.iter().filter(|(_, player)| relevant_players.id_list.contains(&player.id));
+        // we filter the result of the bevy query "entities" to contains only "(entity_tag, transform)"" where "entity_tag.id" is in "relevant_entities.list"
+        let relevant_entities_data = entities.iter().filter(|(entity, _)| relevant_entities.list.contains(&entity.id));
 
-        for (transform, other_player) in relevant_players_data
+        for (entity, transform) in relevant_entities_data
         {
             // we could use a for loop on others, and filter here with a if(relevant_players.contains(other_player_id)) {to_send.push_back(other_data)}
-            data_to_send.push((other_player.id.clone(), transform.clone()));
+            let transform_to_send: Vec2 = transform.translation.xy();
+
+            data_to_send.push((entity.id.clone(), transform_to_send));
         }
 
-        // TODO : send a packet containing data_to_send, to player.id (which is a GameConnection from GameSockets).
         // ideally, we would add this to a buffer via a bevy message, and have a system that runs last and centralize all the data that needs to be sent to a player.
-        let _ = player;
+        
+        // gathering data to know where to send packet
+
+        let player_stream = &player_registry.players.get(&player.connection)
+            .expect("send_relevant_entities() : a PlayerTag contains a GameConnection that isn't in PlayerRegistry")
+            .game_stream;
+
+        //
+
+        // packet construction
+
+        let header_size : usize = 0;
+        let data_size : usize = data_to_send.len() * (size_of::<EntityId>() + 2 * size_of::<f32>());
+
+        let mut packet = BytesMut::with_capacity(header_size + data_size);
+        
+        packet.put_u8(0x3); // TODO : shared::BinaryDataType::Transform2D (it isn't in this branch yet)
+
+        for (entity_id, entity_transform) in data_to_send
+        {
+            packet.put_u32_le(entity_id);
+            packet.put_f32_le(entity_transform.x);
+            packet.put_f32_le(entity_transform.y);
+        }
+
+        //
+
+        // packet sending
+
+        if let Err(_err) = peer_res.peer.send(&player.connection, &player_stream, packet.freeze())
+        {
+            error!("send_relevant_entities() : send failed.\n{}", _err);
+            return;
+        };
+
+        //
+
     }
     return;
 }

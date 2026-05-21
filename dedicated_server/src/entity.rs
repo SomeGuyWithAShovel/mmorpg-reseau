@@ -5,6 +5,8 @@ use bevy::{
     }, 
 };
 
+use std::sync::atomic::{AtomicU32, Ordering};
+
 pub const PLAYABLE_DIST_EPSILON: f32 = 0.5;
 
 // -------------------------------------------------------------------------------------------------------------------
@@ -23,8 +25,27 @@ impl Plugin for EntityPlugin
 
 // -------------------------------------------------------------------------------------------------------------------
 
-#[derive(Component, Default)]
-pub struct EntityTag;
+pub type EntityId = u32;
+
+#[derive(Component)]
+pub struct EntityTag
+{
+    pub id: EntityId,
+}
+
+impl EntityTag
+{
+    pub fn new() -> EntityTag
+    {
+        // https://doc.rust-lang.org/reference/items/static-items.html
+        // ça marche pour un serveur (même multithreadé), mais je doute que ça marche avec plusieurs serveurs ("shards")...
+
+        static NEW_ENTITY_ID: AtomicU32 = AtomicU32::new(0_u32);
+        return EntityTag {
+            id: NEW_ENTITY_ID.fetch_add(1_u32, Ordering::SeqCst)
+        };
+    }
+}
 
 // -------------------------------------------------------------------------------------------------------------------
 

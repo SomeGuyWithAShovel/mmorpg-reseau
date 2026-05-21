@@ -12,11 +12,9 @@ use std::collections::HashMap;
  *  Écrit à l'aide des exemples issus du dossier game_sockets/bin
  */
 
-pub type PlayerId = GameStream;
-
 pub struct PlayerInfo
 {
-    pub id : PlayerId,
+    pub game_stream : GameStream,
     // S'il y a pas de username, le joueur n'a pas join
     pub username : String,
 }

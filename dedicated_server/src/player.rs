@@ -2,13 +2,14 @@ use bevy::{
     prelude::*,
 };
 
+use game_sockets::GameConnection;
+
 use crate::{
-    sockets::PlayerId,
     entity::{
         EntityTag,
         Velocity,
     },
-    area_of_interest::*,
+    area_of_interest::AreaOfInterestEntities,
 };
 
 // -------------------------------------------------------------------------------------------------------------------
@@ -34,7 +35,7 @@ impl Plugin for PlayerPlugin
 #[derive(Message)]
 pub struct MessageSpawnPlayer
 {
-    pub id: PlayerId,
+    pub connection: GameConnection,
 }
 
 // -------------------------------------------------------------------------------------------------------------------
@@ -42,7 +43,7 @@ pub struct MessageSpawnPlayer
 #[derive(Component)]
 pub struct PlayerTag
 {
-    pub id: PlayerId,
+    pub connection: GameConnection,
 }
 
 // -------------------------------------------------------------------------------------------------------------------
@@ -53,14 +54,14 @@ pub fn spawn_player(mut commands: Commands, mut msgs: MessageReader<MessageSpawn
     {
         commands.spawn((
     
-            PlayerTag{ id: msg.id.clone() },
+            PlayerTag{ connection: msg.connection },
     
-            EntityTag,
+            EntityTag::new(),
             Velocity::default(),
     
             Transform::from_xyz(0.0, 0.0, 0.0),
 
-            PlayerListOfPlayersInAreaOfInterest::default(),
+            AreaOfInterestEntities::default(),
         ));
     }
 }

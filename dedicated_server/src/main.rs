@@ -132,10 +132,12 @@ fn receive_packets(
                         peer_res.peer.send(&connection, &stream, response)?;
                         let player_info = PlayerInfo {
                             username: username.to_string(),
-                            id: stream.clone()
+                            game_stream: stream.clone()
                         };
+
                         player_registry.players.insert(connection, player_info);
-                        msg_spawn_player.write(MessageSpawnPlayer{id: stream.clone()});
+
+                        msg_spawn_player.write(MessageSpawnPlayer{connection: connection.clone()});
                     }
                 }
                 else
