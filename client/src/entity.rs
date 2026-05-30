@@ -28,7 +28,7 @@ impl Plugin for EntityPlugin
 // -------------------------------------------------------------------------------------------------------------------
 
 #[derive(Component, Default)]
-pub struct EntityTag;
+pub struct EntityTag(pub u64);
 
 // -------------------------------------------------------------------------------------------------------------------
 
@@ -56,7 +56,7 @@ impl Velocity
 
 pub fn move_entities(mut entities : Query <(&mut Velocity, &mut Transform), With<EntityTag>>, time: Res<Time>)
 {
-    for (mut velocity, mut transform) in &mut entities
+    for (velocity, mut transform) in &mut entities
     {
         // info!("entity transform : {}", transform.translation);
         // info!("           speed : {}", velocity.v.length());

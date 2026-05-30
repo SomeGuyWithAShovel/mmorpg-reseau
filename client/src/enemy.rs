@@ -1,3 +1,4 @@
+/*
 use bevy::{
     prelude::*,
     math::NormedVectorSpace, 
@@ -13,9 +14,7 @@ use crate::{
         PLAYABLE_DIST_EPSILON, 
     },
     entity::*,
-    player::{
-        PlayerTag
-    },
+    player::*,
 };
 
 // -------------------------------------------------------------------------------------------------------------------
@@ -196,7 +195,7 @@ pub fn spawn_enemies(mut commands: Commands, asset_server: Res<AssetServer>, mut
 
             EnemyTag,
 
-            EntityTag,
+            EntityTag(0),
             Velocity::default(),
 
             enemy_transform,
@@ -235,7 +234,7 @@ impl Target {
 // -------------------------------------------------------------------------------------------------------------------
 
 // TODO: on_player_moved, instead of on each tick
-pub fn enemies_target_player(player: Single<&Transform, With<PlayerTag>>, enemies: Query<&mut Target, With<EnemyTag>>)
+pub fn enemies_target_player(player: Single<&Transform, With<LocalPlayerTag>>, enemies: Query<&mut Target, With<EnemyTag>>)
 {
     for mut target in enemies
     {
@@ -270,3 +269,4 @@ pub fn enemies_set_velocity_to_target(mut enemies : Query <(&Transform, &Target,
 }
 
 // -------------------------------------------------------------------------------------------------------------------
+*/

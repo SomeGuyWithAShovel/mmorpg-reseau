@@ -2,7 +2,6 @@ use bevy::{
     prelude::*,
     camera::ScalingMode,
 };
-
 use crate::{
     common::{
         PLAYABLE_AREA, 
@@ -11,6 +10,7 @@ use crate::{
     },
     entity::*,
     input::system_input_keyboard,
+    connection::*,
 };
 
 // -------------------------------------------------------------------------------------------------------------------
@@ -25,10 +25,6 @@ impl Plugin for PlayerPlugin
 
         app.add_message::<MessagePlayerAction>();
         
-        app.add_systems(Startup, 
-            spawn_player
-        );
-
         app.add_systems(PreUpdate, 
             (
                 system_input_keyboard, 
@@ -36,6 +32,7 @@ impl Plugin for PlayerPlugin
                 player_process_actions
             ).chain()
         );
+        app.add_observer(spawn_local_player);
 
     }
 }
@@ -43,7 +40,7 @@ impl Plugin for PlayerPlugin
 // -------------------------------------------------------------------------------------------------------------------
 
 #[derive(Component)]
-pub struct PlayerTag;
+pub struct LocalPlayerTag;
 
 // -------------------------------------------------------------------------------------------------------------------
 
@@ -182,7 +179,7 @@ pub struct MessagePlayerAction
 
 // -------------------------------------------------------------------------------------------------------------------
 
-pub fn player_receive_actions(mut player_actions: Single<&mut PlayerActionHolder, With<PlayerTag>>, 
+pub fn player_receive_actions(mut player_actions: Single<&mut PlayerActionHolder, With<LocalPlayerTag>>, 
     mut msgs: MessageReader<MessagePlayerAction>)
 {
     for msg in msgs.read()
@@ -193,7 +190,7 @@ pub fn player_receive_actions(mut player_actions: Single<&mut PlayerActionHolder
 
 // -------------------------------------------------------------------------------------------------------------------
 
-pub fn player_process_actions(mut player: Single<(&mut PlayerActionHolder, &mut Velocity), With<PlayerTag>>)
+pub fn player_process_actions(mut player: Single<(&mut PlayerActionHolder, &mut Velocity), With<LocalPlayerTag>>)
 {
     // info!("player_process_actions({:08b})", player.0.data);
     let (actions, velocity) = &mut *player;
@@ -217,8 +214,25 @@ pub fn player_process_actions(mut player: Single<(&mut PlayerActionHolder, &mut 
 
 // -------------------------------------------------------------------------------------------------------------------
 
-pub fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>)
-{
+#[derive(Bundle, Default)]
+struct PlayerBundle(EntityTag, Velocity, Transform, Sprite, PlayerActionHolder);
+
+pub fn spawn_player<'a>(id: u64, commands : &'a mut Commands, asset_server : &AssetServer) -> EntityCommands<'a> {
+    commands.spawn(PlayerBundle(
+        EntityTag(id),
+        Velocity::default(),
+        PLAYER_DEFAULT_PARAMS.transform,
+        Sprite {
+            custom_size: Some(PLAYER_DEFAULT_PARAMS.size),
+            image: asset_server.load(PLAYER_DEFAULT_PARAMS.sprite),
+            color: PLAYER_DEFAULT_PARAMS.color,
+            ..default()
+        },
+        PlayerActionHolder::default(),
+    ))
+}
+
+pub fn spawn_local_player(msg : On<WelcomeEvent>, mut commands: Commands, asset_server: Res<AssetServer>) {
     // camera
     commands.spawn((
         Camera2d,
@@ -229,26 +243,7 @@ pub fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>)
             } 
         )
     ));
-
-    // player
-    commands.spawn((
-
-        PlayerTag,
-
-        EntityTag,
-        Velocity::default(),
-
-        PLAYER_DEFAULT_PARAMS.transform,
-
-        Sprite {
-            custom_size: Some(PLAYER_DEFAULT_PARAMS.size),
-            image: asset_server.load(PLAYER_DEFAULT_PARAMS.sprite),
-            color: PLAYER_DEFAULT_PARAMS.color,
-            ..default()
-        },
-
-        PlayerActionHolder::default(),
-    ));
+    spawn_player(msg.id, &mut commands, asset_server.into_inner()).insert(LocalPlayerTag);
 }
 
 // -------------------------------------------------------------------------------------------------------------------
