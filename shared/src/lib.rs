@@ -172,3 +172,68 @@ pub struct ServerInfo
     pub port: u16,
     pub zone: String,
 }
+
+pub enum EntityState {
+    Owned,
+    PendingHandoff,
+    Ghost,
+}
+
+// Peut changer de type selon les besoins
+#[derive(Deref, DerefMut)]
+pub struct ClientId(u32);
+
+// Peut changer de type selon les besoins
+#[derive(Deref, DerefMut)]
+pub struct EntityId(u32);
+
+pub enum GameMessage {
+    Subscribe {
+        client_id : ClientId,
+        topic : [u8; 32],
+    },
+    Unsubscribe {
+        client_id : ClientId,
+        topic : [u8; 32],
+    },
+    Publish {
+        topic : [u8; 32],
+        payload : Vec<u8>,
+    },
+    Broadcast {
+        payload : Vec<u8>,
+    },
+    ClientInput {
+        client_id : ClientId,
+    },
+    HandoffRequest {
+        entity_id : EntityId,
+        pos : Vec2,
+        vel : Vec2,
+        state : [u8; 64],
+    },
+    HandoffAccept {
+        entity_id : EntityId,
+    },
+    HandoffReject {
+        entity_id : EntityId,
+    },
+    GhostUpdate {
+        entity_id : EntityId,
+        pos : Vec2,
+        vel : Vec2,
+    },
+    HandoffComplete {
+        entity_id : EntityId,
+    },
+}
+
+impl GameMessage {
+    pub fn from_bytes() -> Option<GameMessage> {
+        None
+    }
+
+    pub fn to_bytes(self) -> Bytes {
+        BytesMut::with_capacity(0).freeze()
+    }
+}
