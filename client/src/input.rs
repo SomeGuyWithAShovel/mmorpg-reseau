@@ -7,31 +7,10 @@ use bevy::{
     }
 };
 
+use shared::input::PlayerAction;
 use crate::player::{
-    PlayerAction,
     MessagePlayerAction
 };
-
-// -------------------------------------------------------------------------------------------------------------------
-
-impl PlayerAction
-{
-    #[must_use] // [nodiscard]
-    pub const fn get_key_code(&self) -> KeyCode
-    {
-        match self
-        {
-            PlayerAction::Forward  => { return KeyCode::KeyW; }
-            PlayerAction::Backward => { return KeyCode::KeyS; }
-            PlayerAction::Left     => { return KeyCode::KeyA; }
-            PlayerAction::Right    => { return KeyCode::KeyD; }
-            PlayerAction::Boost    => { return KeyCode::ShiftLeft; }
-            PlayerAction::Shoot    => { return KeyCode::Space; }
-            PlayerAction::Dodge    => { return KeyCode::ControlLeft; }
-            PlayerAction::Extra    => { return KeyCode::KeyE; }
-        }
-    }
-}
 
 // -------------------------------------------------------------------------------------------------------------------
 

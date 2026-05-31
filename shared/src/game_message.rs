@@ -30,6 +30,7 @@ pub enum GameMessage {
     },
     ClientInput {
         client_id : ClientId,
+        input : [u8; 16],
     },
     HandoffRequest {
         entity_id : EntityId,
@@ -91,9 +92,10 @@ impl GameMessage {
                 out.put_u64(payload.len() as u64);
                 out.put_slice(payload);
             }
-            GameMessage::ClientInput { client_id } => {
+            GameMessage::ClientInput { client_id, input } => {
                 out.put_u8(Self::CLIENT_INPUT);
                 out.put_u32(client_id.0);
+                out.put_slice(input);
             }
             GameMessage::HandoffRequest { entity_id, pos, vel, state } => {
                 out.put_u8(Self::HANDOFF_REQUEST);
@@ -169,7 +171,12 @@ impl GameMessage {
             Self::CLIENT_INPUT => {
                 if data.remaining() < 4 { return None; }
                 let client = data.get_u32();
-                Some(GameMessage::ClientInput { client_id: ClientId(client) })
+                let mut input = [0u8; 16];
+                data.copy_to_slice(&mut input);
+                Some(GameMessage::ClientInput {
+                    client_id: ClientId(client) ,
+                    input
+                })
             }
             Self::HANDOFF_REQUEST => {
                 // entity_id (4) + pos(8) + vel(8) + state(64) = 84

@@ -3,6 +3,7 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use uuid::Uuid;
 use bevy::prelude::*;
 
+pub mod input;
 pub mod game_message;
 
 pub const SECONDS_BETWEEN_HEARTBEATS : f32 = 5.0;
