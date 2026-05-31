@@ -1,10 +1,11 @@
 use bevy::prelude::*;
-use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 mod server;
 use crate::server::*;
-use shared::*;
+mod entity;
+use crate::entity::*;
+use shared::{*, game_message::*, input::*};
 use game_sockets::*;
 use game_sockets::protocols::{QuicBackend, UdpBackend};
 use bytes::Bytes;
@@ -19,11 +20,6 @@ pub struct PlayerInfo {
     // S'il y a pas de username, le joueur n'a pas join
     username : String,
     stream : GameStream,
-}
-
-#[derive(Resource, Default)]
-pub struct PlayerRegistry {
-    pub players: HashMap<GameConnection, PlayerInfo>,
 }
 
 #[derive(Resource)]
@@ -91,44 +87,79 @@ fn bind_socket(mut commands : Commands, config : Res<ServerConfig>) -> Result {
     heartbeat_peer.connect(&orch_address.ip().to_string().as_str(), HEARTBEAT_PORT)?;    
     
     commands.insert_resource(DedicatedServerPeer{peer:quic_game_peer, heartbeat_peer, orchestrator:None});
-    commands.insert_resource(PlayerRegistry{players:HashMap::new()});
     
+    Ok(())
+}
+
+fn message_received(
+    peer_res : &DedicatedServerPeer,
+    connection : &GameConnection,
+    stream : &GameStream,
+    data : Bytes,
+    player_input_writer : &mut MessageWriter<PlayerActionHolderMessage>,
+    entity_creation_writer : &mut MessageWriter<CreateEntity>,
+    ghost_update_writer : &mut MessageWriter<UpdateGhostEntity>,
+    unghost_writer : &mut MessageWriter<GhostToOwned>) -> Result {
+    if let Some(message) = GameMessage::from_bytes(data.clone()) {
+        match message {
+            GameMessage::ClientInput{ client_id, input } => {
+                let act = PlayerActionHolder{data : input[0]};
+                player_input_writer.write(PlayerActionHolderMessage{id:client_id, act});
+            }
+            GameMessage::HandoffRequest { entity_id, pos, vel, state } => {
+                // Créer l'entité dans le serveur en mode "Ghost"
+                entity_creation_writer.write(CreateEntity {
+                    tag : EntityTag {
+                        id:entity_id,
+                        state: EntityNetworkState::Ghost,
+                    },
+                    pos, vel, state,
+                });
+                peer_res.peer.send(connection, stream, GameMessage::HandoffAccept{entity_id}.to_bytes())?;
+            }
+            GameMessage::GhostUpdate { entity_id, pos, vel, state } => {
+                ghost_update_writer.write(UpdateGhostEntity{id : entity_id, pos, vel, state});
+            }
+            GameMessage::HandoffComplete { entity_id } => {
+                unghost_writer.write(GhostToOwned{id: entity_id});
+            }
+            _ => {
+                warn!("Message non interprétable par le serveur : {:?}", message);
+            }
+        }
+    }
+    else {
+        warn!("Message non désérialisable : {:?}", data);
+    }
     Ok(())
 }
 
 fn receive_packets(
     config : Res<ServerConfig>,
+    players : Query<(), With<PlayerTag>>,
     mut peer_res : ResMut<DedicatedServerPeer>,
-    mut player_registry : ResMut<PlayerRegistry>) -> Result {
+    mut player_input_writer : MessageWriter<PlayerActionHolderMessage>,
+    mut entity_creation_writer : MessageWriter<CreateEntity>,
+    mut ghost_update_writer : MessageWriter<UpdateGhostEntity>,
+    mut unghost_writer : MessageWriter<GhostToOwned>) -> Result {
     if let Some(event) = peer_res.peer.poll()? {
+        //todo!("Gestion de la connexion avec le broker plutôt que des clients");
         match event {
             GameNetworkEvent::Connected(connection) => {
                 info!("Connexion client : {:?}", connection);
             }
             GameNetworkEvent::Disconnected(connection) => {
                 info!("Déconnexion client {:?}", connection);
-                player_registry.players.remove(&connection);
             }
             GameNetworkEvent::Message{ connection, stream, data } => {
-                if let Ok(str_data) = str::from_utf8(&data[..]) {
-                    if str_data.starts_with("JOIN") && let Some(username) = str_data.strip_prefix("JOIN { ").and_then(|s| s.strip_suffix(" }")) {
-                        let response = Bytes::from(format!("WELCOME {{ {} }}", username));
-                        peer_res.peer.send(&connection, &stream, response)?;
-                        let player_info = PlayerInfo {
-                            username: username.to_string(),
-                            stream
-                        };
-                        player_registry.players.insert(connection, player_info);
-                    }
-                }
-                else {
-                    warn!("Donnée non UTF8 envoyée par {:?}", connection);
-                }
+                message_received(&peer_res, &connection, &stream, data,
+                                 &mut player_input_writer,
+                                 &mut entity_creation_writer,
+                                 &mut ghost_update_writer,
+                                 &mut unghost_writer)?;
             }
             GameNetworkEvent::StreamCreated(_, _) => {}
-            GameNetworkEvent::StreamClosed(connection, _) => {
-                player_registry.players.remove(&connection);
-            }
+            GameNetworkEvent::StreamClosed(connection, _) => {}
             GameNetworkEvent::Error { connection:_connection, inner } => {
                 error!("Erreur du client : {:?}", inner);
             }
@@ -159,7 +190,8 @@ fn receive_packets(
                 if !peer_res.orchestrator.is_some() {
                     info!("Création du stream avec l'orchestrateur : {:?}", connection);
                     peer_res.orchestrator = Some(OrchestratorConnection{connection, stream});
-                    send_heartbeat(player_registry.into(), config, peer_res)?;
+                    let player_count = players.count();
+                    send_heartbeat(config, peer_res, player_count)?;
                 }
             }
             GameNetworkEvent::StreamClosed(_connection, _stream) => {
@@ -176,12 +208,11 @@ fn receive_packets(
 
 
 fn send_heartbeat(
-    player_registry : Res<PlayerRegistry>,
     config : Res<ServerConfig>,
-    peer_res : ResMut<DedicatedServerPeer>) -> Result {
+    peer_res : ResMut<DedicatedServerPeer>,
+    player_count : usize) -> Result {
     
     if let Some(orchestrator) = &peer_res.orchestrator {
-        let player_count = player_registry.players.len();
         let is_full = player_count == config.max_players;
         let ip = IpAddr::from_str(get_own_ip())?;
         let ds_address = SocketAddr::new(ip, config.port);
@@ -205,12 +236,13 @@ fn send_heartbeat(
 fn send_heartbeat_periodically(
     time: Res<Time>,
     mut timer: ResMut<HeartbeatTimer>,
-    player_registry : Res<PlayerRegistry>,
+    players : Query<(), With<PlayerTag>>,
     config : Res<ServerConfig>,
     peer_res : ResMut<DedicatedServerPeer>) -> Result {
     
     if timer.0.tick(time.delta()).just_finished() {
-        send_heartbeat(player_registry, config, peer_res)?;
+        let player_count = players.count();
+        send_heartbeat(config, peer_res, player_count)?;
     }
     Ok(())    
 }

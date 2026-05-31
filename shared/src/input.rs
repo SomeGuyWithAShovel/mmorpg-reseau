@@ -49,7 +49,7 @@ impl PlayerAction
 #[derive(Component, Default)] // Default, so it can initialize itself using u8::default()
 pub struct PlayerActionHolder
 {
-    data: u8,
+    pub data: u8,
 }
 
 impl PlayerActionHolder // so I don't start to do bitwise operations everywhere

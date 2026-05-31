@@ -1,17 +1,9 @@
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use bevy::prelude::*;
 
-pub enum EntityState {
-    Owned,
-    PendingHandoff,
-    Ghost,
-}
+use crate::entity::*;
 
-#[derive(Debug, Clone, Copy)]
-pub struct ClientId(pub u32);
-#[derive(Debug, Clone, Copy)]
-pub struct EntityId(pub u32);
-
+#[derive(Debug)]
 pub enum GameMessage {
     Subscribe {
         client_id : ClientId,
@@ -48,6 +40,8 @@ pub enum GameMessage {
         entity_id : EntityId,
         pos : Vec2,
         vel : Vec2,
+        // Si on reçoit pas de state sur le dedicated server lors des updates, je vois pas comment faire
+        state : [u8; 64],
     },
     HandoffComplete {
         entity_id : EntityId,
@@ -114,13 +108,14 @@ impl GameMessage {
                 out.put_u8(Self::HANDOFF_REJECT);
                 out.put_u32(entity_id.0);
             }
-            GameMessage::GhostUpdate { entity_id, pos, vel } => {
+            GameMessage::GhostUpdate { entity_id, pos, vel, state } => {
                 out.put_u8(Self::GHOST_UPDATE);
                 out.put_u32(entity_id.0);
                 out.put_f32(pos.x);
                 out.put_f32(pos.y);
                 out.put_f32(vel.x);
                 out.put_f32(vel.y);
+                out.put_slice(state);
             }
             GameMessage::HandoffComplete { entity_id } => {
                 out.put_u8(Self::HANDOFF_COMPLETE);
@@ -212,10 +207,13 @@ impl GameMessage {
                 let py = data.get_f32();
                 let vx = data.get_f32();
                 let vy = data.get_f32();
+                let mut state = [0u8; 64];
+                data.copy_to_slice(&mut state);
                 Some(GameMessage::GhostUpdate {
                     entity_id: EntityId(entity),
                     pos: Vec2::new(px, py),
                     vel: Vec2::new(vx, vy),
+                    state,
                 })
             }
             Self::HANDOFF_COMPLETE => {

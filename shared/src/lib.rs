@@ -5,6 +5,7 @@ use bevy::prelude::*;
 
 pub mod input;
 pub mod game_message;
+pub mod entity;
 
 pub const SECONDS_BETWEEN_HEARTBEATS : f32 = 5.0;
 
