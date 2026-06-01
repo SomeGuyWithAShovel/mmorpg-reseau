@@ -1,5 +1,33 @@
 use bevy::prelude::*;
 
+pub const PLAYER_Z_ORDER: f32 = 3.0;
+
+pub struct PlayerDefaultParams
+{
+    pub sprite: &'static str,
+    pub size: Vec2,
+    pub speed: f32,
+    pub boost_mult: f32,
+    pub transform: Transform,
+    pub color: Color,
+}
+impl PlayerDefaultParams // the Default trait doesn't allow default() to be a const fn
+{
+    const fn new() -> Self {
+        PlayerDefaultParams{
+            sprite: "todo_texture_atlas.png",
+            size: Vec2::splat(24.0),
+            speed: 100.0,
+            boost_mult: 1.5,
+            transform: Transform::from_xyz(0.0, 0.0, PLAYER_Z_ORDER),
+            color: Color::Srgba(Srgba { red: 0.000, green: 0.750, blue: 1.000, alpha: 1.0, }),
+        }
+    }
+}
+
+pub const PLAYER_DEFAULT_PARAMS: PlayerDefaultParams = PlayerDefaultParams::new();
+
+
 // #[allow(unused)]
 #[derive(Debug, Clone, Copy)] // Debug so it can be printed with {:?}
 pub enum PlayerAction

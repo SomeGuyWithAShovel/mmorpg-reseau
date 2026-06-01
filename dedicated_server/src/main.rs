@@ -1,11 +1,15 @@
 use bevy::prelude::*;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
+
 mod server;
 use crate::server::*;
 mod entity;
 use crate::entity::*;
-use shared::{*, game_message::*, input::*};
+use shared::{*, game_message::*, input::*, entity::EntityState};
+mod messages;
+use messages::*;
+
 use game_sockets::*;
 use game_sockets::protocols::{QuicBackend, UdpBackend};
 use bytes::Bytes;
@@ -47,11 +51,16 @@ fn get_own_ip() -> &'static str {
 fn main() {
     App::new()
         .add_plugins(MinimalPlugins)
+        .add_plugins(EntityPlugin)
+        .add_plugins(MessagePlugin)
         .insert_resource(ServerConfig::from_env())
         .insert_resource(HeartbeatTimer(Timer::from_seconds(SECONDS_BETWEEN_HEARTBEATS , TimerMode::Repeating)))
         .add_systems(Startup, bind_socket.chain())
         .add_systems(Startup, debug_info)
-        .add_systems(Update, (receive_packets, send_heartbeat_periodically).chain())
+    // PreUpdate pour passer avant FixedUpdate de EntityPlugin
+    // Ordre : https://docs.rs/bevy/0.13.2/bevy/app/struct.Main.html
+        .add_systems(PreUpdate, receive_packets)
+        .add_systems(Update, send_heartbeat_periodically)        
         .run();
 }
 
@@ -108,17 +117,29 @@ fn message_received(
             }
             GameMessage::HandoffRequest { entity_id, pos, vel, state } => {
                 // Créer l'entité dans le serveur en mode "Ghost"
-                entity_creation_writer.write(CreateEntity {
-                    tag : EntityTag {
-                        id:entity_id,
-                        state: EntityNetworkState::Ghost,
-                    },
-                    pos, vel, state,
-                });
-                peer_res.peer.send(connection, stream, GameMessage::HandoffAccept{entity_id}.to_bytes())?;
+                if let Some(entity_state) = EntityState::from_bytes(Bytes::copy_from_slice(&state)) {
+                    entity_creation_writer.write(CreateEntity {
+                        tag: EntityTag {
+                            id: entity_id,
+                            state: EntityNetworkState::Ghost,
+                        },
+                        pos, vel,
+                        state: entity_state,
+                    });
+                    peer_res.peer.send(connection, stream, GameMessage::HandoffAccept{entity_id}.to_bytes())?;
+                }
+                else {
+                    warn!("État d'entité invalide pour la mise à jour: {:?}", state);
+                    peer_res.peer.send(connection, stream, GameMessage::HandoffReject{entity_id}.to_bytes())?;
+                }
             }
             GameMessage::GhostUpdate { entity_id, pos, vel, state } => {
-                ghost_update_writer.write(UpdateGhostEntity{id : entity_id, pos, vel, state});
+                if let Some(entity_state) = EntityState::from_bytes(Bytes::copy_from_slice(&state)) {
+                    ghost_update_writer.write(UpdateGhostEntity{id: entity_id, pos, vel, state: entity_state});
+                }
+                else {
+                    warn!("État d'entité invalide pour la mise à jour: {:?}", state);
+                }
             }
             GameMessage::HandoffComplete { entity_id } => {
                 unghost_writer.write(GhostToOwned{id: entity_id});

@@ -51,45 +51,25 @@ pub struct PlayerActionHolderMessage
     pub act: PlayerActionHolder,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EntityNetworkState {
     Owned,
     PendingHandoff,
     Ghost,
 }
 
-
-#[derive(Component)]
-pub struct EntityTag{
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Component)]
+pub struct EntityTag {
     pub id : EntityId,
     pub state : EntityNetworkState,
 }
 
-#[derive(Component)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Component)]
 pub struct PlayerTag {
     pub id : ClientId,
 }
 
-#[derive(Message)]
-pub struct CreateEntity {
-    pub tag : EntityTag,
-    pub pos : Vec2,
-    pub vel : Vec2,
-    pub state : [u8; 64],
-    // Aucun state pour l'instant
-}
 
-#[derive(Message)]
-pub struct UpdateGhostEntity {
-    pub id: EntityId,
-    pub pos : Vec2,
-    pub vel : Vec2,
-    pub state : [u8; 64],
-}
-
-#[derive(Message)]
-pub struct GhostToOwned {
-    pub id : EntityId,
-}
 
 
 // -------------------------------------------------------------------------------------------------------------------
