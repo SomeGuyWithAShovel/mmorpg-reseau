@@ -6,7 +6,7 @@ mod server;
 use crate::server::*;
 mod entity;
 use crate::entity::*;
-use shared::{*, game_message::*, input::*, entity::EntityState};
+use shared::{*, game_message::*, input::*};
 mod messages;
 use messages::*;
 
@@ -18,28 +18,21 @@ use bytes::Bytes;
  *  Écrit à l'aide des exemples issus du dossier game_sockets/bin
  */
 
-
-// TODO : PlayerInfo doit contenir le DedicatedServerPeer
-pub struct PlayerInfo {
-    // S'il y a pas de username, le joueur n'a pas join
-    username : String,
-    stream : GameStream,
-}
-
 #[derive(Resource)]
 struct HeartbeatTimer(Timer);
 
 #[derive(Clone)]
-struct OrchestratorConnection {
+struct DedicatedServerConnection {
     connection : GameConnection,
     stream : GameStream,
 }
 
 #[derive(Resource)]
 struct DedicatedServerPeer {
-    peer: GamePeer,
+    broker_peer: GamePeer,
+    broker_connection : Option<DedicatedServerConnection>,
     heartbeat_peer: GamePeer,
-    orchestrator : Option<OrchestratorConnection>,
+    orchestrator_connection : Option<DedicatedServerConnection>,
 }
 
 fn get_own_ip() -> &'static str {
@@ -95,7 +88,12 @@ fn bind_socket(mut commands : Commands, config : Res<ServerConfig>) -> Result {
     let orch_address = config.orchestrator_address;
     heartbeat_peer.connect(&orch_address.ip().to_string().as_str(), HEARTBEAT_PORT)?;    
     
-    commands.insert_resource(DedicatedServerPeer{peer:quic_game_peer, heartbeat_peer, orchestrator:None});
+    commands.insert_resource(DedicatedServerPeer{
+        broker_peer:quic_game_peer,
+        broker_connection:None,
+        heartbeat_peer,
+        orchestrator_connection:None,
+    });
     
     Ok(())
 }
@@ -108,40 +106,32 @@ fn message_received(
     player_input_writer : &mut MessageWriter<PlayerActionHolderMessage>,
     entity_creation_writer : &mut MessageWriter<CreateEntity>,
     ghost_update_writer : &mut MessageWriter<UpdateGhostEntity>,
-    unghost_writer : &mut MessageWriter<GhostToOwned>) -> Result {
+    unghost_writer : &mut MessageWriter<GhostToOwned>,
+    pending_writer : &mut MessageWriter<OwnedToPending>) -> Result {
     if let Some(message) = GameMessage::from_bytes(data.clone()) {
         match message {
             GameMessage::ClientInput{ client_id, input } => {
                 let act = PlayerActionHolder{data : input[0]};
                 player_input_writer.write(PlayerActionHolderMessage{id:client_id, act});
             }
-            GameMessage::HandoffRequest { entity_id, pos, vel, state } => {
+            GameMessage::HandoffRequest { entity_id, pos, vel, state, .. } => {
                 // Créer l'entité dans le serveur en mode "Ghost"
-                if let Some(entity_state) = EntityState::from_bytes(Bytes::copy_from_slice(&state)) {
-                    entity_creation_writer.write(CreateEntity {
-                        tag: EntityTag {
-                            id: entity_id,
-                            state: EntityNetworkState::Ghost,
-                        },
-                        pos, vel,
-                        state: entity_state,
-                    });
-                    peer_res.peer.send(connection, stream, GameMessage::HandoffAccept{entity_id}.to_bytes())?;
-                }
-                else {
-                    warn!("État d'entité invalide pour la mise à jour: {:?}", state);
-                    peer_res.peer.send(connection, stream, GameMessage::HandoffReject{entity_id}.to_bytes())?;
-                }
+                entity_creation_writer.write(CreateEntity {
+                    tag: EntityTag {
+                        id: entity_id,
+                        state: EntityNetworkState::Ghost,
+                    },
+                    pos, vel, state,
+                });
+                peer_res.broker_peer.send(connection, stream, GameMessage::HandoffAccept{entity_id}.to_bytes())?;
+            }
+            GameMessage::HandoffAccept { entity_id } => {
+                pending_writer.write(OwnedToPending{id: entity_id});
             }
             GameMessage::GhostUpdate { entity_id, pos, vel, state } => {
-                if let Some(entity_state) = EntityState::from_bytes(Bytes::copy_from_slice(&state)) {
-                    ghost_update_writer.write(UpdateGhostEntity{id: entity_id, pos, vel, state: entity_state});
-                }
-                else {
-                    warn!("État d'entité invalide pour la mise à jour: {:?}", state);
-                }
+                ghost_update_writer.write(UpdateGhostEntity{id: entity_id, pos, vel, state});
             }
-            GameMessage::HandoffComplete { entity_id } => {
+            GameMessage::HandoffComplete { entity_id, .. } => {
                 unghost_writer.write(GhostToOwned{id: entity_id});
             }
             _ => {
@@ -162,27 +152,39 @@ fn receive_packets(
     mut player_input_writer : MessageWriter<PlayerActionHolderMessage>,
     mut entity_creation_writer : MessageWriter<CreateEntity>,
     mut ghost_update_writer : MessageWriter<UpdateGhostEntity>,
-    mut unghost_writer : MessageWriter<GhostToOwned>) -> Result {
-    if let Some(event) = peer_res.peer.poll()? {
+    mut unghost_writer : MessageWriter<GhostToOwned>,
+    mut pending_writer : MessageWriter<OwnedToPending>) -> Result {
+    if let Some(event) = peer_res.broker_peer.poll()? {
         //todo!("Gestion de la connexion avec le broker plutôt que des clients");
         match event {
             GameNetworkEvent::Connected(connection) => {
-                info!("Connexion client : {:?}", connection);
+                info!("Connexion broker : {:?}", connection);
             }
             GameNetworkEvent::Disconnected(connection) => {
-                info!("Déconnexion client {:?}", connection);
+                info!("Déconnexion broker {:?}", connection);
+                peer_res.broker_connection = None;
             }
             GameNetworkEvent::Message{ connection, stream, data } => {
                 message_received(&peer_res, &connection, &stream, data,
                                  &mut player_input_writer,
                                  &mut entity_creation_writer,
                                  &mut ghost_update_writer,
-                                 &mut unghost_writer)?;
+                                 &mut unghost_writer,
+                                 &mut pending_writer)?;
             }
-            GameNetworkEvent::StreamCreated(_, _) => {}
-            GameNetworkEvent::StreamClosed(connection, _) => {}
+            GameNetworkEvent::StreamCreated(connection, stream) => {
+                info!("Création de stream avec le broker {:?}", connection);
+                peer_res.broker_connection = Some(
+                    DedicatedServerConnection{connection, stream}
+                );
+            }
+            GameNetworkEvent::StreamClosed(connection, _) => {
+                warn!("Fermeture du stream avec le broker {:?} ?", connection);
+                peer_res.broker_connection = None;
+                
+            }
             GameNetworkEvent::Error { connection:_connection, inner } => {
-                error!("Erreur du client : {:?}", inner);
+                error!("Erreur du broker : {:?}", inner);
             }
         }
     }
@@ -193,8 +195,8 @@ fn receive_packets(
                 peer_res.heartbeat_peer.create_stream(connection, GameStreamReliability::Unreliable)?;
             }
             GameNetworkEvent::Disconnected(_) => {
-                println!("Déconnexion de l'orchestrateur");
-                peer_res.orchestrator = None;
+                warn!("Déconnexion de l'orchestrateur");
+                peer_res.orchestrator_connection = None;
             }
             GameNetworkEvent::Message{ connection:_, stream:_, data } => {
                 if let Ok(msg) = str::from_utf8(&data[..]) {
@@ -208,18 +210,17 @@ fn receive_packets(
                 error!("Erreur de l'orchestrateur : {:?}", inner);
             }
             GameNetworkEvent::StreamCreated(connection, stream) => {
-                if !peer_res.orchestrator.is_some() {
-                    info!("Création du stream avec l'orchestrateur : {:?}", connection);
-                    peer_res.orchestrator = Some(OrchestratorConnection{connection, stream});
-                    let player_count = players.count();
-                    send_heartbeat(config, peer_res, player_count)?;
-                }
+                info!("Création du stream avec l'orchestrateur : {:?}", connection);
+                peer_res.orchestrator_connection = Some(
+                    DedicatedServerConnection{connection, stream}
+                );
+                let player_count = players.count();
+                send_heartbeat(config, peer_res, player_count)?;
+                
             }
-            GameNetworkEvent::StreamClosed(_connection, _stream) => {
-                if let Some(_) = &peer_res.orchestrator {
-                    info!("Stream de l'orchestrateur fermé ?");
-                    peer_res.orchestrator = None;
-                }
+            GameNetworkEvent::StreamClosed(_connection, _stream) => {                
+                warn!("Stream de l'orchestrateur fermé ?");
+                peer_res.orchestrator_connection = None;
             }
         }
     }
@@ -233,7 +234,7 @@ fn send_heartbeat(
     peer_res : ResMut<DedicatedServerPeer>,
     player_count : usize) -> Result {
     
-    if let Some(orchestrator) = &peer_res.orchestrator {
+    if let Some(orchestrator) = &peer_res.orchestrator_connection {
         let is_full = player_count == config.max_players;
         let ip = IpAddr::from_str(get_own_ip())?;
         let ds_address = SocketAddr::new(ip, config.port);
@@ -248,7 +249,7 @@ fn send_heartbeat(
         
         info!("Envoi du heartbeat: {:?}", hb);
 
-        let OrchestratorConnection{connection, stream} = orchestrator;
+        let DedicatedServerConnection{connection, stream} = &orchestrator;
         peer_res.heartbeat_peer.send(connection, stream, hb.to_bytes())?;
     }
     Ok(())

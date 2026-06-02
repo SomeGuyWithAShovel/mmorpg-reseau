@@ -15,6 +15,9 @@ pub struct ServerConfig {
     pub max_players: usize,
     pub orchestrator_address: SocketAddr,
     pub map_borders : Rect,
+    /* Nombre de secondes minimal pour qu'une entité faisant une ligne droite 
+    d'un shard à un autre passe de PendingHandoff à être Owned par l'autre shard */
+    pub min_border_seconds : f32, 
 }
 
 impl ServerConfig {    
@@ -33,6 +36,7 @@ impl ServerConfig {
                 .map(|ipv4| SocketAddr::new(ipv4, orch_port))
                 .unwrap_or(SocketAddr::new(IpAddr::from(DEFAULT_ADDRESS), orch_port)),
             map_borders: Self::get_borders_from_env(),
+            min_border_seconds: Self::parse_env_var("DS_MIN_BORDERS_SECONDS", 1.0),
         }
     }
 
