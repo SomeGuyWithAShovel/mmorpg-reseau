@@ -18,9 +18,10 @@ pub enum EntityState {
 impl EntityState {
     const PLAYER_STATE : u8 = 0x01;
     const OTHER : u8 = 0xFF;
-    
+
+    // Toujours de taille 64
     pub fn to_bytes(&self) -> Bytes {
-        let mut out = BytesMut::new();
+        let mut out = BytesMut::with_capacity(64);
         match self {
             EntityState::PlayerState{id} => {
                 out.put_u8(Self::PLAYER_STATE);
@@ -30,11 +31,13 @@ impl EntityState {
                 out.put_u8(Self::OTHER);
             }
         }
+        out.resize(64, 0u8);
         out.freeze()
     }
-
+    
     pub fn from_bytes(mut data : Bytes) -> Option<Self> {
-        if !data.has_remaining() { return None; }
+        if !data.remaining() < 64 { return None; }        
+        let mut data = data.split_to(64);
         let tag = data.get_u8();
 
         match tag {
@@ -47,7 +50,7 @@ impl EntityState {
             }
             _ => {
                 None
-            }
+            }            
         }
     }
 }

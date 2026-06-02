@@ -24,11 +24,13 @@ pub enum GameMessage {
         client_id : ClientId,
         input : [u8; 16],
     },
+    // Envoyé par un Dedicated Server
     HandoffRequest {
         entity_id : EntityId,
         pos : Vec2,
         vel : Vec2,
-        state : [u8; 64],
+        border : Border,
+        state : EntityState,
     },
     HandoffAccept {
         entity_id : EntityId,
@@ -41,10 +43,11 @@ pub enum GameMessage {
         pos : Vec2,
         vel : Vec2,
         // Si on reçoit pas de state sur le dedicated server lors des updates, je vois pas comment faire
-        state : [u8; 64],
+        state : EntityState,
     },
     HandoffComplete {
         entity_id : EntityId,
+        border : Border,
     },
 }
 
@@ -91,14 +94,15 @@ impl GameMessage {
                 out.put_u32(client_id.0);
                 out.put_slice(input);
             }
-            GameMessage::HandoffRequest { entity_id, pos, vel, state } => {
+            GameMessage::HandoffRequest { entity_id, pos, vel, state, border } => {
                 out.put_u8(Self::HANDOFF_REQUEST);
                 out.put_u32(entity_id.0);
                 out.put_f32(pos.x);
                 out.put_f32(pos.y);
                 out.put_f32(vel.x);
                 out.put_f32(vel.y);
-                out.put_slice(state);
+                out.put_u8(border.to_byte());
+                out.put(state.to_bytes());
             }
             GameMessage::HandoffAccept { entity_id } => {
                 out.put_u8(Self::HANDOFF_ACCEPT);
@@ -115,11 +119,12 @@ impl GameMessage {
                 out.put_f32(pos.y);
                 out.put_f32(vel.x);
                 out.put_f32(vel.y);
-                out.put_slice(state);
+                out.put(state.to_bytes());
             }
-            GameMessage::HandoffComplete { entity_id } => {
+            GameMessage::HandoffComplete { entity_id ,border} => {
                 out.put_u8(Self::HANDOFF_COMPLETE);
                 out.put_u32(entity_id.0);
+                out.put_u8(border.to_byte());
             }
         }
 
@@ -174,20 +179,22 @@ impl GameMessage {
                 })
             }
             Self::HANDOFF_REQUEST => {
-                // entity_id (4) + pos(8) + vel(8) + state(64) = 84
-                if data.remaining() < 4 + 4*4 + 64 { return None; }
+                // entity_id (4) + pos(8) + vel(8) + state(64) + border(1)
+                if data.remaining() < 4 + 4*4 + 64 + 1 { return None; }
                 let entity = data.get_u32();
                 let px = data.get_f32();
                 let py = data.get_f32();
                 let vx = data.get_f32();
                 let vy = data.get_f32();
+                let border = Border::from_byte(data.get_u8())?;
                 let mut state = [0u8; 64];
                 data.copy_to_slice(&mut state);
                 Some(GameMessage::HandoffRequest {
                     entity_id: EntityId(entity),
                     pos: Vec2::new(px, py),
                     vel: Vec2::new(vx, vy),
-                    state,
+                    state: EntityState::from_bytes(Bytes::copy_from_slice(&state))?,
+                    border,
                 })
             }
             Self::HANDOFF_ACCEPT => {
@@ -213,15 +220,102 @@ impl GameMessage {
                     entity_id: EntityId(entity),
                     pos: Vec2::new(px, py),
                     vel: Vec2::new(vx, vy),
-                    state,
+                    state: EntityState::from_bytes(Bytes::copy_from_slice(&state))?,
                 })
             }
             Self::HANDOFF_COMPLETE => {
-                if data.remaining() < 4 { return None; }
+                if data.remaining() < 5 { return None; }
                 let entity = data.get_u32();
-                Some(GameMessage::HandoffComplete { entity_id: EntityId(entity) })
+                let border = Border::from_byte(data.get_u8())?;
+                Some(GameMessage::HandoffComplete {
+                    entity_id: EntityId(entity),
+                    border,
+                })
             }
             _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Border {
+    Left,
+    Top,
+    Right,
+    Bottom,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+impl Border {
+    pub fn combine(self, other: Border) -> Option<Border> {
+        match self {
+            Self::Left => {
+                match other {
+                    Self::Left   => { Some(Self::Left) }
+                    Self::Right  => { None }
+                    Self::Top    => { Some(Self::TopLeft) }
+                    Self::Bottom => { Some(Self::BottomLeft) }
+                    _ => { None }
+                }
+            }
+            Self::Right => {
+                match other {       
+                    Self::Left   => { None }
+                    Self::Right  => { Some(Self::Right) }
+                    Self::Top    => { Some(Self::TopRight) }
+                    Self::Bottom => { Some(Self::BottomRight) }
+                    _ => { None }
+                }
+            }
+            Self::Top => {
+                match other {       
+                    Self::Left   => { Some(Self::TopLeft) }
+                    Self::Right  => { Some(Self::TopRight) }
+                    Self::Top    => { Some(Self::Top) }
+                    Self::Bottom => { None }
+                    _ => { None }
+                }                                   
+            }
+            Self::Bottom => {
+                match other {       
+                    Self::Left   => { Some(Self::BottomLeft) }
+                    Self::Right  => { Some(Self::BottomRight) }
+                    Self::Top    => { None }
+                    Self::Bottom => { Some(Self::Bottom) }
+                    _ => { None }
+                }
+            }
+            _ => { None }
+        }
+    }
+
+    fn to_byte(self) -> u8 {
+        match self {
+            Self::Left        => { return 0x00; }
+            Self::Top         => { return 0x01; }
+            Self::Right       => { return 0x02; }
+            Self::Bottom      => { return 0x03; }
+            Self::TopLeft     => { return 0x04; }
+            Self::TopRight    => { return 0x05; }
+            Self::BottomLeft  => { return 0x06; }
+            Self::BottomRight => { return 0x07; }
+        }
+    }
+
+    fn from_byte(b : u8) -> Option<Border> {
+        match b {
+            0x00 => { Some(Self::Left) }
+            0x01 => { Some(Self::Top) }
+            0x02 => { Some(Self::Right) }
+            0x03 => { Some(Self::Bottom) }
+            0x04 => { Some(Self::TopLeft) }
+            0x05 => { Some(Self::TopRight) }
+            0x06 => { Some(Self::BottomLeft) }
+            0x07 => { Some(Self::BottomRight) }
+            _    => { None }
         }
     }
 }
