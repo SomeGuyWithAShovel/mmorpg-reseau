@@ -14,41 +14,41 @@ pub struct ServerConfig {
     pub zone: String,        // ex: "zone_A"
     pub max_players: usize,
     pub orchestrator_address: SocketAddr,
+    pub map_borders : Rect,
 }
 
 impl ServerConfig {    
     pub fn from_env() -> Self {
-        let id = Uuid::new_v4();
-        
-        let port = std::env::var("DS_PORT")
-            .ok()
-            .map(|s| s.parse::<u16>().ok())
-            .flatten()
-            .unwrap_or(DEFAULT_PORT);
-
-        let orch_port = std::env::var("ORCH_PORT")
-            .ok()
-            .map(|s| s.parse::<u16>().ok())
-            .flatten()
-            .unwrap_or(DEFAULT_PORT);
+        let orch_port = Self::parse_env_var("ORCH_PORT", DEFAULT_PORT);
         
         ServerConfig {
-            id,
-            port,
+            id : Uuid::new_v4(),
+            port : Self::parse_env_var("DS_PORT", DEFAULT_PORT),
             zone : std::env::var("DS_ZONE")
                 .unwrap_or("unknown".to_string()),
-            max_players : std::env::var("DS_MAX_PLAYERS")
-                .ok()
-                .map(|s| s.parse::<usize>().ok())
-                .flatten()
-                .unwrap_or(0),
+            max_players : Self::parse_env_var("DS_MAX_PLAYERS", 0usize),
             orchestrator_address : std::env::var("ORCH_ADDRESS").ok()
-                .map(|s| Ipv4Addr::from_str(s.as_str()).ok())
-                .flatten()
+                .and_then(|s| Ipv4Addr::from_str(s.as_str()).ok())
                 .map(IpAddr::from)
                 .map(|ipv4| SocketAddr::new(ipv4, orch_port))
                 .unwrap_or(SocketAddr::new(IpAddr::from(DEFAULT_ADDRESS), orch_port)),
+            map_borders: Self::get_borders_from_env(),
         }
+    }
+
+    fn parse_env_var<T : FromStr>(s : &str, default : T) -> T{
+        std::env::var(s)
+            .ok()
+            .and_then(|s| s.parse::<T>().ok())
+            .unwrap_or(default)
+    }
+    
+    fn get_borders_from_env() -> Rect {
+        let top    = Self::parse_env_var("DS_BORDER_TOP"    , 0.0);
+        let left   = Self::parse_env_var("DS_BORDER_LEFT"   , 0.0);
+        let bottom = Self::parse_env_var("DS_BORDER_BOTTOM" , 0.0);
+        let right  = Self::parse_env_var("DS_BORDER_RIGHT"  , 0.0);
+        return Rect::new(top, left, bottom, right);
     }
 }
 
