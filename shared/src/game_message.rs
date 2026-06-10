@@ -44,7 +44,7 @@ impl PeerType
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ClientId{
     pub peer_type: PeerType,
-    pub value : u32,
+    pub value : u128,
 }
 
 #[derive(Debug, Deref, DerefMut)]
@@ -137,19 +137,25 @@ impl GameMessage {
 
     pub const CLIENT_UPDATE : u8 = 0x30;
     pub const REGISTER : u8 = 0x31;
+
+    pub fn as_bytes(&self) -> Bytes {
+        let mut buf = BytesMut::new();
+        self.append_bytes(&mut buf);
+        buf.freeze()
+    }
     
     pub fn append_bytes(&self, out : &mut BytesMut) {
         match self {
             GameMessage::Subscribe { client_id, topic } => {
                 out.put_u8(Self::SUBSCRIBE);
                 out.put_u8(client_id.peer_type.to_byte());
-                out.put_u32(client_id.value);
+                out.put_u128(client_id.value);
                 topic.append_bytes(out);
             }
             GameMessage::Unsubscribe { client_id, topic } => {
                 out.put_u8(Self::UNSUBSCRIBE);
                 out.put_u8(client_id.peer_type.to_byte());
-                out.put_u32(client_id.value);
+                out.put_u128(client_id.value);
                 topic.append_bytes(out);
             }
             GameMessage::Publish { topic, payload } => {
@@ -166,7 +172,7 @@ impl GameMessage {
             GameMessage::ClientInput { client_id, input } => {
                 out.put_u8(Self::CLIENT_INPUT);
                 out.put_u8(client_id.peer_type.to_byte());
-                out.put_u32(client_id.value);
+                out.put_u128(client_id.value);
                 out.put_u8(input.data);
             }
             GameMessage::HandoffRequest { entity_id, pos, vel, state, border } => {
@@ -213,7 +219,7 @@ impl GameMessage {
             GameMessage::Register { client_id } => {
                 out.put_u8(Self::REGISTER);
                 out.put_u8(client_id.peer_type.to_byte());
-                out.put_u32(client_id.value);
+                out.put_u128(client_id.value);
             }
         }
     }
@@ -224,22 +230,22 @@ impl GameMessage {
 
         match tag {
             Self::SUBSCRIBE => {
-                if data.remaining() < 1 + 4 + 32 { return None; }
+                if data.remaining() < 1 + size_of::<u128>() { return None; }
                 let peer_type = PeerType::from_byte(data.get_u8())?;
-                let client = data.get_u32();
+                let client = data.get_u128();
                 let topic = Topic::from_bytes(data)?;
                 Some(GameMessage::Subscribe { client_id: ClientId{peer_type, value:client}, topic })
             }
             Self::UNSUBSCRIBE => {
-                if data.remaining() < 4 + 32 { return None; }
+                if data.remaining() < 1 + size_of::<u128>() { return None; }
                 let peer_type = PeerType::from_byte(data.get_u8())?;
-                let client = data.get_u32();
+                let client = data.get_u128();
                 let topic = Topic::from_bytes(data)?;
                 Some(GameMessage::Unsubscribe { client_id: ClientId{peer_type, value:client}, topic })
             }
             Self::PUBLISH => {
-                if data.remaining() < 32 + 8 { return None; }
                 let topic = Topic::from_bytes(data)?;
+                if data.remaining() < size_of::<u64>() { return None; }
                 let len = data.get_u64() as usize;
                 if data.remaining() < len { return None; }
                 let mut payload = vec![0u8; len];
@@ -247,7 +253,7 @@ impl GameMessage {
                 Some(GameMessage::Publish { topic, payload })
             }
             Self::BROADCAST => {
-                if data.remaining() < 8 { return None; }
+                if data.remaining() < size_of::<u64>() { return None; }
                 let len = data.get_u64() as usize;
                 if data.remaining() < len { return None; }
                 let mut payload = vec![0u8; len];
@@ -255,9 +261,9 @@ impl GameMessage {
                 Some(GameMessage::Broadcast { payload })
             }
             Self::CLIENT_INPUT => {
-                if data.remaining() < 5 { return None; }
+                if data.remaining() < 1 + size_of::<u128>() + size_of::<u8>() { return None; }
                 let peer_type = PeerType::from_byte(data.get_u8())?;
-                let client = data.get_u32();
+                let client = data.get_u128();
                 let input = data.get_u8();
                 Some(GameMessage::ClientInput {
                     client_id: ClientId{peer_type, value:client},
@@ -265,8 +271,7 @@ impl GameMessage {
                 })
             }
             Self::HANDOFF_REQUEST => {
-                // entity_id (4) + pos(8) + vel(8) + state(64) + border(1)
-                if data.remaining() < 4 + 4*4 + 64 + 1 { return None; }
+                if data.remaining() < size_of::<u32>() + 4*size_of::<f32>() + 1 + 64 { return None; }
                 let entity = data.get_u32();
                 let px = data.get_f32();
                 let py = data.get_f32();
@@ -284,17 +289,17 @@ impl GameMessage {
                 })
             }
             Self::HANDOFF_ACCEPT => {
-                if data.remaining() < 4 { return None; }
+                if data.remaining() < size_of::<u32>() { return None; }
                 let entity = data.get_u32();
                 Some(GameMessage::HandoffAccept { entity_id: EntityId(entity) })
             }
             Self::HANDOFF_REJECT => {
-                if data.remaining() < 4 { return None; }
+                if data.remaining() < size_of::<u32>() { return None; }
                 let entity = data.get_u32();
                 Some(GameMessage::HandoffReject { entity_id: EntityId(entity) })
             }
             Self::GHOST_UPDATE => {
-                if data.remaining() < 4 + 4*4 { return None; }
+                if data.remaining() < size_of::<u32>() + 4*size_of::<f32>() + 64 { return None; }
                 let entity = data.get_u32();
                 let px = data.get_f32();
                 let py = data.get_f32();
@@ -310,7 +315,7 @@ impl GameMessage {
                 })
             }
             Self::HANDOFF_COMPLETE => {
-                if data.remaining() < 5 { return None; }
+                if data.remaining() < size_of::<u32>() + 1 { return None; }
                 let entity = data.get_u32();
                 let border = Border::from_byte(data.get_u8())?;
                 Some(GameMessage::HandoffComplete {
@@ -319,7 +324,7 @@ impl GameMessage {
                 })
             }
             Self::CLIENT_UPDATE => {
-                if data.remaining() < 4 + 4*4 { return None; }
+                if data.remaining() < size_of::<u32>() + 4*size_of::<f32>() + 64 { return None; }
                 let entity = data.get_u32();
                 let px = data.get_f32();
                 let py = data.get_f32();
@@ -335,9 +340,9 @@ impl GameMessage {
                 })
             }
             Self::REGISTER => {
-                if data.remaining() < 5 { return None; }
+                if data.remaining() < 1 + size_of::<u128>() { return None; }
                 let peer_type = PeerType::from_byte(data.get_u8())?;
-                let client = data.get_u32();
+                let client = data.get_u128();
                 Some(GameMessage::Register {
                     client_id: ClientId{peer_type, value: client},
                 })

@@ -44,12 +44,12 @@ impl EntityState {
 
     // Toujours de taille 64
     pub fn to_bytes(&self) -> Bytes {
-        let mut out = BytesMut::with_capacity(64);
+        let mut out = BytesMut::with_capacity(8 + 8 + 128);
         match self {
             EntityState::PlayerState{id} => {
                 out.put_u8(Self::PLAYER_STATE);
                 out.put_u8(id.peer_type.to_byte());
-                out.put_u32(id.value);
+                out.put_u128(id.value);
             }
             EntityState::Other => {
                 out.put_u8(Self::OTHER);
@@ -60,14 +60,14 @@ impl EntityState {
     }
     
     pub fn from_bytes(mut data : Bytes) -> Option<Self> {
-        if !data.remaining() < 64 { return None; }        
+        if !data.remaining() < 64 + 1 { return None; }
         let mut data = data.split_to(64);
         let tag = data.get_u8();
 
         match tag {
             Self::PLAYER_STATE => {
                 let peer_type = PeerType::from_byte(data.get_u8())?;
-                let id = data.get_u32();
+                let id = data.get_u128();
                 Some(Self::PlayerState{id:ClientId{
                     peer_type,
                     value:id,                    

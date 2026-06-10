@@ -102,7 +102,7 @@ pub struct LoginRequest
 #[derive(Serialize, Deserialize)]
 pub struct LoginSuccess
 {
-    pub player_id: ClientId,
+    pub player_id: Uuid,
     pub server: ServerInfo,
 }
 
