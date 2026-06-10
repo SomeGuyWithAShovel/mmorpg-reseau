@@ -74,7 +74,7 @@ impl PlayerAction
 
 // -------------------------------------------------------------------------------------------------------------------
 
-#[derive(Component, Default)] // Default, so it can initialize itself using u8::default()
+#[derive(Component, Default, Debug, Copy, Clone)] // Default, so it can initialize itself using u8::default()
 pub struct PlayerActionHolder
 {
     pub data: u8,

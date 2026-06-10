@@ -1,10 +1,8 @@
 use game_sockets::*;
 use game_sockets::protocols::QuicBackend;
 use tokio::runtime::Builder;
-use uuid::Uuid;
-use shared::*;
-use crate::entity::EntityTag;
-use crate::player::{LocalPlayerTag, spawn_player};
+use shared::{*, entity::*, input::*, game_message::*};
+use crate::{player::spawn_player, ClientEntityTag};
 use bytes::*;
 use bevy::prelude::*;
 use std::collections::HashMap;
@@ -16,20 +14,25 @@ pub struct GameSocketId {
 
 #[derive(Event)]
 pub struct WelcomeEvent {
-    pub id : u64,
+    pub id : u32,
 }
 
 #[derive(Resource)]
-pub struct DedicatedServerConnection {
-    player_id : Uuid,
+pub struct BrokerConnection {
+    client_id : ClientId,
     peer : GamePeer,
     game_socket : Option<GameSocketId>,
 }
 
 #[derive(Message)]
-pub enum ServerMessage {
-    ChangeTransform{id : u64, transform : Transform},
+pub struct UpdateEntity {
+    id : EntityId,
+    pos: Vec2,
+    vel: Vec2,
+    state : EntityState,
 }
+
+
     
 pub struct ConnectionPlugin;
 
@@ -38,9 +41,10 @@ impl Plugin for ConnectionPlugin {
         app
             .add_systems(Startup, find_server)
             .add_systems(PreUpdate, recieve_packets)
+            .add_systems(StateTransition, update_states)
             .add_systems(Update, reajust_position)
-            .add_systems(PostUpdate, send_packets)
-            .add_message::<ServerMessage>();
+            .add_systems(PostUpdate, send_inputs)
+            .add_message::<UpdateEntity>();
     }
 }
 
@@ -69,8 +73,8 @@ fn find_server(mut commands : Commands) -> Result {
     if let Some(user) = handle {
         let peer = GamePeer::new(QuicBackend::new());
         peer.connect(user.server.ip.to_string().as_str(), user.server.port)?;
-        commands.insert_resource(DedicatedServerConnection{
-            player_id: user.player_id,
+        commands.insert_resource(BrokerConnection{
+            client_id: user.player_id,
             peer,
             game_socket: None,
         });
@@ -111,30 +115,30 @@ async fn gatekeeper_connection() -> Option<LoginSuccess> {
     }    
 }
 
-fn recieve_packets(mut ds_conn : ResMut<DedicatedServerConnection>,
-                   mut msg_writer: MessageWriter<ServerMessage>,
-                   mut commands : Commands) -> Result {
-    while let Some(event) = ds_conn.peer.poll()? {
+fn recieve_packets(mut conn : ResMut<BrokerConnection>,
+                   mut msg_writer: MessageWriter<UpdateEntity>) -> Result {
+    while let Some(event) = conn.peer.poll()? {
         match event {
             GameNetworkEvent::Connected(connection) => {
                 info!("Connexion au serveur : {:?}", connection);
-                ds_conn.peer.create_stream(connection, GameStreamReliability::Unreliable)?;
+                conn.peer.create_stream(connection, GameStreamReliability::Unreliable)?;
             }
             GameNetworkEvent::Disconnected(connection) => {
                 info!("Déconnexion du serveur : {:?}", connection);
-                ds_conn.game_socket = None;
+                conn.game_socket = None;
             }
-            GameNetworkEvent::Message{connection, stream, data} => {
+            GameNetworkEvent::Message{data, ..} => {
                 info!("Message du serveur reçu");
-                handle_server_message(connection, stream, data.clone(), &mut msg_writer, &mut commands, &mut ds_conn);
+                handle_server_message(&data, &mut msg_writer);
             }
             GameNetworkEvent::StreamCreated(connection, stream) => {
-                info!("Création de stream au serveur : {:?}", stream);
-                ds_conn.peer.send(&connection, &stream, join_message(ds_conn.player_id.to_string()))?;
+                info!("Création de stream au broker : {:?}", stream);
+                conn.peer.send(&connection, &stream, join_message(conn.client_id))?;
+                conn.game_socket = Some(GameSocketId{connection, stream});
             }
             GameNetworkEvent::StreamClosed(connection, _) => {
                 info!("Fermeture de stream du serveur : {:?}", connection);
-                ds_conn.game_socket = None;
+                conn.game_socket = None;
             }
             GameNetworkEvent::Error{connection:_, inner} => {
                 warn!("Erreur du serveur : {:?}", inner);
@@ -144,75 +148,79 @@ fn recieve_packets(mut ds_conn : ResMut<DedicatedServerConnection>,
     Ok(())
 }
 
-fn join_message(uuid : String) -> Bytes {
-    let mut buf = BytesMut::with_capacity(1 + 9 + uuid.len());
-    buf.put_u8(BinaryDataType::Join.as_byte());
-    let msg = format!("JOIN {{ {} }}", uuid);
-    buf.extend_from_slice(msg.as_bytes());
-
-    buf.freeze()
+fn join_message(client_id : ClientId) -> Bytes {
+    todo!("Changer message de connexion (probablement un publish ?)");
 }
 
-fn handle_server_message(
-    connection : GameConnection,
-    stream : GameStream,
-    mut data : Bytes,
-    msg_writer : &mut MessageWriter<ServerMessage>,
-    commands : &mut Commands,
-    ds_conn : &mut DedicatedServerConnection) {
-    match BinaryDataType::from_byte(data.get_u8()) {
-        Some(BinaryDataType::Join) => {
-            warn!("Le serveur essaye de JOIN ?");
-            while data.get_u8() != ('}' as u8) {}
-        }
-        Some(BinaryDataType::Welcome) => {
-            ds_conn.game_socket = Some(GameSocketId{connection, stream});            
-            let _ = data.split_to("WELCOME { ".len());
-            let player_id = data.get_u64();
-            let _ = data.split_to(" }".len());
-            commands.trigger(WelcomeEvent{id : player_id});
-        }
-        Some(BinaryDataType::List) => {
-            let len = data.get_u64();
-            for _ in 0..len {
-                handle_server_message(connection, stream.clone(), data.clone(), msg_writer, commands, ds_conn);
+fn handle_server_message(data : &Bytes, msg_writer : &mut MessageWriter<UpdateEntity>) {
+    
+    // Pour le message d'erreur
+    let mut data_copy = data.clone();
+    let mut remaining = data.remaining();
+    
+    while let Some(message) = GameMessage::from_bytes(&mut data_copy) {
+        match message {
+            GameMessage::ClientUpdate{ entity_id, pos, vel, state } => {
+                msg_writer.write(UpdateEntity{id: entity_id, pos, vel, state});
+            }
+            _ => {
+                warn!("Type de message non supporté par le client envoyé : {:?}", message);
             }
         }
-        Some(BinaryDataType::Transform2d) => {
-            let entity_id = data.get_u64();
-            let new_transform = shared::bytes_as_unscaled_transform_2d(data.clone());
-            msg_writer.write(ServerMessage::ChangeTransform{id: entity_id, transform:new_transform});
-        }
-        None => {
-            warn!("Message serveur corrompu");
-        }
+        remaining = data_copy.remaining();
+    }
+    if remaining > 0 {
+        let slice = data.slice((data.len() - remaining)..);
+        warn!("Message non désérialisable : {:?}", slice);
     }
 }
 
-fn send_packets(local_player : Single<(&EntityTag, &Transform), With<LocalPlayerTag>>, ds_conn : ResMut<DedicatedServerConnection>) -> Result {
-    if let Some(game_socket) = &ds_conn.game_socket {        
-        let (tag, transform) = local_player.into_inner();
-        let mut buf = BytesMut::new();
-        
-        buf.put_u8(BinaryDataType::Transform2d.as_byte());
-        buf.put_u64(tag.0);
-        buf.extend(unscaled_transform_2d_as_bytes(*transform));
-        ds_conn.peer.send(&game_socket.connection, &game_socket.stream, buf.freeze())?;
+fn send_inputs(
+    local_player : Single<&PlayerActionHolder>,
+    conn : ResMut<BrokerConnection>) -> Result {
+
+    if let Some(socket_id) = &conn.game_socket {
+        let act = local_player.into_inner();
+        if act.data != 0 {
+
+            let mut buf = BytesMut::new();
+            GameMessage::ClientInput {
+                client_id: conn.client_id,
+                input: *act,
+            }.append_bytes(&mut buf);
+            
+            conn.peer.send(&socket_id.connection, &socket_id.stream, buf.freeze())?;
+        }
+            
     }
+    
     Ok(())
 }
 
-fn reajust_position(mut msg_reader : MessageReader<ServerMessage>, mut query : Query<(&EntityTag, &mut Transform), Without<LocalPlayerTag>>, mut commands : Commands, asset_server : Res<AssetServer>) {
-    let mut map = HashMap::<u64, Transform>::new();
-    for msg in msg_reader.read() {
-        match msg {            
-            ServerMessage::ChangeTransform{id, transform} => {
-                map.insert(*id, *transform);
-            }
-        }
+fn update_states(mut msg_reader : MessageReader<UpdateEntity>) {
+    let mut map = HashMap::<u32, EntityState>::new();
+    for msg in msg_reader.read() {        
+        let UpdateEntity{id: EntityId(id), state, ..} = msg;
+        map.insert(*id, *state);
     }
 
-    for (EntityTag(id), mut transform) in &mut query {
+    // Mise à jour des états en fonction des besoins...
+}
+
+fn reajust_position(mut msg_reader : MessageReader<UpdateEntity>,
+                    mut query : Query<(&ClientEntityTag, &mut Transform)>,
+                    mut commands : Commands,
+                    asset_server : Res<AssetServer>) {
+    let mut map = HashMap::<u32, Transform>::new();
+    for msg in msg_reader.read() {        
+        let UpdateEntity{id: EntityId(id), pos, vel, ..} = msg;
+        let rot = Quat::from_rotation_z(vel.to_angle() - std::f32::consts::FRAC_PI_2);
+        let transform = Transform::from_xyz(pos.x, pos.y, 0.0)
+            .with_rotation(rot);
+        map.insert(*id, transform);
+    }
+
+    for (ClientEntityTag(EntityId(id)), mut transform) in &mut query {
         if let Some(new_transform) = map.get(id) {
             transform.translation = new_transform.translation;
             transform.rotation = new_transform.rotation;

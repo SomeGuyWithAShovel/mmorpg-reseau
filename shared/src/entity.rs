@@ -1,11 +1,34 @@
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use bevy::prelude::*;
+pub use crate::ClientId;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ClientId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EntityId(pub u32);
 
 pub const PLAYABLE_DIST_EPSILON: f32 = 0.5; // f32::EPSILON is too small for our use-case
+
+#[derive(Component)]
+pub struct Velocity
+{
+    pub v: Vec2,
+}
+
+impl Default for Velocity
+{
+    fn default() -> Self {
+        Velocity {v: Vec2::ZERO }
+    }
+}
+impl Velocity
+{
+    pub fn reset(&mut self)
+    {
+        self.v = Vec2::ZERO;
+    }
+}
+
+#[derive(Component)]
+pub struct MaxSpeed(pub f32);
 
 #[derive(Debug, Copy, Clone)]
 pub enum EntityState {

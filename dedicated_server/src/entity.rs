@@ -8,29 +8,6 @@ use bevy::{
 };
 use crate::ServerConfig;
 
-#[derive(Component)]
-pub struct Velocity
-{
-    pub v: Vec2,
-}
-
-impl Default for Velocity
-{
-    fn default() -> Self {
-        Velocity {v: Vec2::ZERO }
-    }
-}
-impl Velocity
-{
-    pub fn reset(&mut self)
-    {
-        self.v = Vec2::ZERO;
-    }
-}
-
-#[derive(Component)]
-pub struct MaxSpeed(pub f32);
-
 #[derive(Message)]
 pub struct PlayerActionHolderMessage
 {
@@ -46,7 +23,7 @@ pub enum EntityNetworkState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Component)]
-pub struct EntityTag {
+pub struct ServerEntityTag {
     pub id : EntityId,
     pub state : EntityNetworkState,
 }
@@ -72,7 +49,7 @@ pub struct HandoffAuthority {
 }
 
 pub fn move_entities(
-    mut entities : Query<(&Velocity, &mut Transform), With<EntityTag>>,
+    mut entities : Query<(&Velocity, &mut Transform), With<ServerEntityTag>>,
     time: Res<Time>)
 {
     for (velocity, mut transform) in &mut entities
@@ -107,7 +84,7 @@ fn circle_touched_rectangle_borders(rect : &Rect, pos : Vec2, radius : f32) -> V
 
 pub fn check_border_crossings(
     mut commands : Commands,
-    query : Query<(Entity, &EntityTag, &Transform, &MaxSpeed)>,
+    query : Query<(Entity, &ServerEntityTag, &Transform, &MaxSpeed)>,
     config : Res<ServerConfig>) {
 
     for item in &query {

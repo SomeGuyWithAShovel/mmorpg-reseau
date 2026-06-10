@@ -2,6 +2,7 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use bevy::prelude::*;
 
 use crate::entity::*;
+use crate::input::PlayerActionHolder;
 
 #[derive(Debug, Deref, DerefMut)]
 pub struct Topic(pub String);
@@ -40,7 +41,7 @@ pub enum GameMessage {
     },
     ClientInput {
         client_id : ClientId,
-        input : [u8; 16],
+        input : PlayerActionHolder,
     },
     // Envoyé par un Dedicated Server
     HandoffRequest {
@@ -67,6 +68,12 @@ pub enum GameMessage {
         entity_id : EntityId,
         border : Border,
     },
+    ClientUpdate {
+        entity_id : EntityId,
+        pos : Vec2,
+        vel : Vec2,
+        state : EntityState,
+    },
 }
 
 impl GameMessage {
@@ -81,6 +88,8 @@ impl GameMessage {
     const HANDOFF_REJECT: u8 = 0x22;
     const GHOST_UPDATE: u8 = 0x23;
     const HANDOFF_COMPLETE: u8 = 0x24;
+
+    const CLIENT_UPDATE : u8 = 0x30;
     
     pub fn append_bytes(&self, out : &mut BytesMut) {
         match self {
@@ -108,7 +117,7 @@ impl GameMessage {
             GameMessage::ClientInput { client_id, input } => {
                 out.put_u8(Self::CLIENT_INPUT);
                 out.put_u32(client_id.0);
-                out.put_slice(input);
+                out.put_u8(input.data);
             }
             GameMessage::HandoffRequest { entity_id, pos, vel, state, border } => {
                 out.put_u8(Self::HANDOFF_REQUEST);
@@ -141,6 +150,15 @@ impl GameMessage {
                 out.put_u8(Self::HANDOFF_COMPLETE);
                 out.put_u32(entity_id.0);
                 out.put_u8(border.to_byte());
+            }
+            GameMessage::ClientUpdate { entity_id, pos, vel, state } => {
+                out.put_u8(Self::CLIENT_UPDATE);
+                out.put_u32(entity_id.0);
+                out.put_f32(pos.x);
+                out.put_f32(pos.y);
+                out.put_f32(vel.x);
+                out.put_f32(vel.y);
+                out.put(state.to_bytes());
             }
         }
     }
@@ -180,13 +198,12 @@ impl GameMessage {
                 Some(GameMessage::Broadcast { payload })
             }
             Self::CLIENT_INPUT => {
-                if data.remaining() < 4 { return None; }
+                if data.remaining() < 5 { return None; }
                 let client = data.get_u32();
-                let mut input = [0u8; 16];
-                data.copy_to_slice(&mut input);
+                let input = data.get_u8();
                 Some(GameMessage::ClientInput {
-                    client_id: ClientId(client) ,
-                    input
+                    client_id: ClientId(client),
+                    input: PlayerActionHolder{data:input}
                 })
             }
             Self::HANDOFF_REQUEST => {
@@ -241,6 +258,22 @@ impl GameMessage {
                 Some(GameMessage::HandoffComplete {
                     entity_id: EntityId(entity),
                     border,
+                })
+            }
+            Self::CLIENT_UPDATE => {
+                if data.remaining() < 4 + 4*4 { return None; }
+                let entity = data.get_u32();
+                let px = data.get_f32();
+                let py = data.get_f32();
+                let vx = data.get_f32();
+                let vy = data.get_f32();
+                let mut state = [0u8; 64];
+                data.copy_to_slice(&mut state);
+                Some(GameMessage::ClientUpdate {
+                    entity_id: EntityId(entity),
+                    pos: Vec2::new(px, py),
+                    vel: Vec2::new(vx, vy),
+                    state: EntityState::from_bytes(Bytes::copy_from_slice(&state))?,
                 })
             }
             _ => None,

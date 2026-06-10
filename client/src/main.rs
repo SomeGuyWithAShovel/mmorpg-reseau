@@ -1,17 +1,15 @@
-mod common;
-mod entity;
 mod input;
 mod player;
-mod enemy;
 mod connection;
-
-// -------------------------------------------------------------------------------------------------------------------
 
 use bevy::{
     prelude::*,
 };
 
-// -------------------------------------------------------------------------------------------------------------------
+use shared::entity::EntityId;
+
+#[derive(Component)]
+pub struct ClientEntityTag(pub EntityId);
 
 fn main()
 {
@@ -32,7 +30,6 @@ fn main()
     
 
 
-    app.add_plugins(entity::EntityPlugin);
     app.add_plugins(player::PlayerPlugin);
     app.add_plugins(connection::ConnectionPlugin);
 

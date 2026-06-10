@@ -7,7 +7,7 @@ mod server;
 use crate::server::*;
 mod entity;
 use crate::entity::*;
-use shared::{*, game_message::*, input::*};
+use shared::{*, game_message::*};
 mod messages;
 use messages::*;
 
@@ -111,7 +111,7 @@ fn message_received(
     entity_creation_writer : &mut MessageWriter<CreateEntity>,
     ghost_update_writer : &mut MessageWriter<UpdateGhostEntity>,
     unghost_writer : &mut MessageWriter<GhostToOwned>,
-    pending_writer : &mut MessageWriter<OwnedToPending>) -> Result {
+    pending_writer : &mut MessageWriter<OwnedToPending>) {
 
     // Pour le message d'erreur
     let mut data_copy = data.clone();
@@ -120,13 +120,12 @@ fn message_received(
     while let Some(message) = GameMessage::from_bytes(&mut data_copy) {
         match message {
             GameMessage::ClientInput{ client_id, input } => {
-                let act = PlayerActionHolder{data : input[0]};
-                player_input_writer.write(PlayerActionHolderMessage{id:client_id, act});
+                player_input_writer.write(PlayerActionHolderMessage{id:client_id, act:input});
             }
             GameMessage::HandoffRequest { entity_id, pos, vel, state, .. } => {
                 // Créer l'entité dans le serveur en mode "Ghost"
                 entity_creation_writer.write(CreateEntity {
-                    tag: EntityTag {
+                    tag: ServerEntityTag {
                         id: entity_id,
                         state: EntityNetworkState::Ghost,
                     },
@@ -154,7 +153,6 @@ fn message_received(
         let slice = data.slice((data.len() - remaining)..);
         warn!("Message non désérialisable : {:?}", slice);
     }
-    Ok(())
 }
 
 fn receive_packets(
@@ -183,7 +181,7 @@ fn receive_packets(
                                  &mut entity_creation_writer,
                                  &mut ghost_update_writer,
                                  &mut unghost_writer,
-                                 &mut pending_writer)?;
+                                 &mut pending_writer);
             }
             GameNetworkEvent::StreamCreated(connection, stream) => {
                 info!("Création de stream avec le broker {:?}", connection);

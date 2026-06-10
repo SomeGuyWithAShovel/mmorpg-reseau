@@ -89,70 +89,6 @@ impl Heartbeat {
     }
 }
 
-// Message client/serveur:
-// Elem : BinaryDataType + octets de contenu
-// contenu List : u64 de longueur + longueur*[Elem]
-// contenu Join : "JOIN { username }" en ascii
-pub enum BinaryDataType {
-    List,
-    Transform2d,
-    Join,
-    Welcome,
-}
-
-impl BinaryDataType {
-    pub fn as_byte(self) -> u8 {
-        match self {
-            BinaryDataType::Join => 0,
-            BinaryDataType::Welcome => 1,
-            BinaryDataType::List => 10,
-            BinaryDataType::Transform2d => 11,
-        }
-    }
-
-    pub fn from_byte(byte : u8) -> Option<BinaryDataType> {
-        match byte {
-            0 => Some(BinaryDataType::Join),
-            1 => Some(BinaryDataType::Welcome),
-            10 => Some(BinaryDataType::List),
-            11 => Some(BinaryDataType::Transform2d),
-            _ => None,
-        }
-    }
-}
-
-pub fn unscaled_transform_2d_as_bytes(transform : Transform) -> Bytes {
-    let rotation_vector = transform.rotation.mul_vec3(Vec3::X); 
-    let mut rotation_angle = rotation_vector.angle_between(Vec3::X);
-    if rotation_vector.y < 0.0 {
-        rotation_angle = std::f32::consts::TAU - rotation_angle;
-    }
-    
-    // [-0.5, 255,5]
-    let angle_norm = ((rotation_angle / std::f32::consts::PI) * 128.0) - 0.5;
-    let angle_int = angle_norm.round().clamp(0.0, 255.0) as u8;
-    let x_int = (transform.translation.x*1024.0) as i32;
-    let y_int = (transform.translation.y*1024.0) as i32;
-    
-    let mut buf = BytesMut::with_capacity(4 + 4 + 1);
-    buf.put_i32(x_int);
-    buf.put_i32(y_int);
-    buf.put_u8(angle_int);
-
-    buf.freeze()
-}
-
-pub fn bytes_as_unscaled_transform_2d(mut bytes : Bytes) -> Transform {
-    let pos_x = (bytes.get_i32() as f32) /1024.0;
-    let pos_y = (bytes.get_i32() as f32) /1024.0;
-    let angle_int = bytes.get_u8() as f32;
-    let angle = ((angle_int + 0.5) / 128.0) * std::f32::consts::PI;
-
-    Transform::IDENTITY
-        .with_translation(Vec3::new(pos_x, pos_y, 0.0))
-        .with_rotation(Quat::from_rotation_z(angle))
-}
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -162,10 +98,13 @@ pub struct LoginRequest
     pub password: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ClientId(pub u32);
+
 #[derive(Serialize, Deserialize)]
 pub struct LoginSuccess
 {
-    pub player_id: Uuid,
+    pub player_id: ClientId,
     pub server: ServerInfo,
 }
 

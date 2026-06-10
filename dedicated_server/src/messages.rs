@@ -5,7 +5,7 @@ use crate::{receive_packets, NetworkMessage};
 
 #[derive(Message)]
 pub struct CreateEntity {
-    pub tag : EntityTag,
+    pub tag : ServerEntityTag,
     pub pos : Vec2,
     pub vel : Vec2,
     pub state : EntityState,
@@ -114,7 +114,7 @@ fn interpret_player_input(
 
 fn update_ghosts(
     mut ghost_update_reader : MessageReader<UpdateGhostEntity>,
-    mut entities : Query<(&EntityTag, &mut Transform, &mut Velocity)>) {
+    mut entities : Query<(&ServerEntityTag, &mut Transform, &mut Velocity)>) {
 
     struct UpdateInfo(Vec2, Vec2, EntityState);
     
@@ -134,7 +134,7 @@ fn update_ghosts(
 }
 
 fn ghost_to_owned(
-    tags : Query<&mut EntityTag>,
+    tags : Query<&mut ServerEntityTag>,
     mut unghost_reader : MessageReader<GhostToOwned>
 ) {
     let mut unghosted = HashSet::new();
@@ -149,7 +149,7 @@ fn ghost_to_owned(
 }
 
 fn owned_to_pending(
-    tags : Query<&mut EntityTag>,
+    tags : Query<&mut ServerEntityTag>,
     mut pending_reader : MessageReader<OwnedToPending>
 ) {
     let mut pending = HashSet::new();
@@ -164,7 +164,7 @@ fn owned_to_pending(
 }
 
 fn notify_border_crossing(event : On<CrossedBorder>,
-                          query : Query<(&EntityTag, &Velocity, &Transform, Option<&PlayerTag>)>,
+                          query : Query<(&ServerEntityTag, &Velocity, &Transform, Option<&PlayerTag>)>,
                           mut network_message : ResMut<NetworkMessage>,
 ) {
     if let Ok((tag, vel, transform, opt_player_tag)) = query.get(event.entity) {
@@ -193,7 +193,7 @@ fn notify_border_crossing(event : On<CrossedBorder>,
 }
 
 fn notify_authority_handoff(event : On<HandoffAuthority>,
-                            tags : Query<&mut EntityTag>,
+                            tags : Query<&mut ServerEntityTag>,
                             mut network_message : ResMut<NetworkMessage>) {
     if let Ok(tag) = tags.get(event.entity) {
         GameMessage::HandoffComplete {
