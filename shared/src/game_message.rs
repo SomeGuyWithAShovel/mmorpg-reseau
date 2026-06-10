@@ -1,8 +1,51 @@
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use serde::{Deserialize, Serialize};
 use bevy::prelude::*;
 
 use crate::entity::*;
 use crate::input::PlayerActionHolder;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PeerType
+{
+    Client,
+    GameServer,
+    OtherServer,
+}
+
+impl PeerType
+{
+    pub const CLIENT : u8 = 0x00;
+    pub const GAME_SERVER : u8 = 0x01;
+    pub const OTHER_SERVER : u8 = 0x02;
+    
+    pub const fn to_byte(&self) -> u8
+    {
+        match self
+        {
+            Self::Client      => { Self::CLIENT }
+            Self::GameServer  => { Self::GAME_SERVER }
+            Self::OtherServer => { Self::OTHER_SERVER }
+        }
+    }
+    
+    pub const fn from_byte(byte: u8) -> Option<Self>
+    {
+        match byte {
+            Self::CLIENT       => Some(Self::Client),
+            Self::GAME_SERVER  => Some(Self::GameServer),
+            Self::OTHER_SERVER => Some(Self::OtherServer),
+            _ => None
+        }
+    }
+}
+
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ClientId{
+    pub peer_type: PeerType,
+    pub value : u32,
+}
 
 #[derive(Debug, Deref, DerefMut)]
 pub struct Topic(pub String);
@@ -74,33 +117,39 @@ pub enum GameMessage {
         vel : Vec2,
         state : EntityState,
     },
+    Register {
+        client_id : ClientId,
+    },
 }
 
 impl GameMessage {
-    const SUBSCRIBE: u8 = 0x01;
-    const UNSUBSCRIBE: u8 = 0x02;
-    const PUBLISH: u8 = 0x03;
-    const BROADCAST: u8 = 0x04;
-    const CLIENT_INPUT: u8 = 0x05;
+    pub const SUBSCRIBE: u8 = 0x01;
+    pub const UNSUBSCRIBE: u8 = 0x02;
+    pub const PUBLISH: u8 = 0x03;
+    pub const BROADCAST: u8 = 0x04;
+    pub const CLIENT_INPUT: u8 = 0x05;
 
-    const HANDOFF_REQUEST: u8 = 0x20;
-    const HANDOFF_ACCEPT: u8 = 0x21;
-    const HANDOFF_REJECT: u8 = 0x22;
-    const GHOST_UPDATE: u8 = 0x23;
-    const HANDOFF_COMPLETE: u8 = 0x24;
+    pub const HANDOFF_REQUEST: u8 = 0x20;
+    pub const HANDOFF_ACCEPT: u8 = 0x21;
+    pub const HANDOFF_REJECT: u8 = 0x22;
+    pub const GHOST_UPDATE: u8 = 0x23;
+    pub const HANDOFF_COMPLETE: u8 = 0x24;
 
-    const CLIENT_UPDATE : u8 = 0x30;
+    pub const CLIENT_UPDATE : u8 = 0x30;
+    pub const REGISTER : u8 = 0x31;
     
     pub fn append_bytes(&self, out : &mut BytesMut) {
         match self {
             GameMessage::Subscribe { client_id, topic } => {
                 out.put_u8(Self::SUBSCRIBE);
-                out.put_u32(client_id.0);
+                out.put_u8(client_id.peer_type.to_byte());
+                out.put_u32(client_id.value);
                 topic.append_bytes(out);
             }
             GameMessage::Unsubscribe { client_id, topic } => {
                 out.put_u8(Self::UNSUBSCRIBE);
-                out.put_u32(client_id.0);
+                out.put_u8(client_id.peer_type.to_byte());
+                out.put_u32(client_id.value);
                 topic.append_bytes(out);
             }
             GameMessage::Publish { topic, payload } => {
@@ -116,7 +165,8 @@ impl GameMessage {
             }
             GameMessage::ClientInput { client_id, input } => {
                 out.put_u8(Self::CLIENT_INPUT);
-                out.put_u32(client_id.0);
+                out.put_u8(client_id.peer_type.to_byte());
+                out.put_u32(client_id.value);
                 out.put_u8(input.data);
             }
             GameMessage::HandoffRequest { entity_id, pos, vel, state, border } => {
@@ -160,6 +210,11 @@ impl GameMessage {
                 out.put_f32(vel.y);
                 out.put(state.to_bytes());
             }
+            GameMessage::Register { client_id } => {
+                out.put_u8(Self::REGISTER);
+                out.put_u8(client_id.peer_type.to_byte());
+                out.put_u32(client_id.value);
+            }
         }
     }
 
@@ -169,16 +224,18 @@ impl GameMessage {
 
         match tag {
             Self::SUBSCRIBE => {
-                if data.remaining() < 4 + 32 { return None; }
+                if data.remaining() < 1 + 4 + 32 { return None; }
+                let peer_type = PeerType::from_byte(data.get_u8())?;
                 let client = data.get_u32();
                 let topic = Topic::from_bytes(data)?;
-                Some(GameMessage::Subscribe { client_id: ClientId(client), topic })
+                Some(GameMessage::Subscribe { client_id: ClientId{peer_type, value:client}, topic })
             }
             Self::UNSUBSCRIBE => {
                 if data.remaining() < 4 + 32 { return None; }
+                let peer_type = PeerType::from_byte(data.get_u8())?;
                 let client = data.get_u32();
                 let topic = Topic::from_bytes(data)?;
-                Some(GameMessage::Unsubscribe { client_id: ClientId(client), topic })
+                Some(GameMessage::Unsubscribe { client_id: ClientId{peer_type, value:client}, topic })
             }
             Self::PUBLISH => {
                 if data.remaining() < 32 + 8 { return None; }
@@ -199,10 +256,11 @@ impl GameMessage {
             }
             Self::CLIENT_INPUT => {
                 if data.remaining() < 5 { return None; }
+                let peer_type = PeerType::from_byte(data.get_u8())?;
                 let client = data.get_u32();
                 let input = data.get_u8();
                 Some(GameMessage::ClientInput {
-                    client_id: ClientId(client),
+                    client_id: ClientId{peer_type, value:client},
                     input: PlayerActionHolder{data:input}
                 })
             }
@@ -274,6 +332,14 @@ impl GameMessage {
                     pos: Vec2::new(px, py),
                     vel: Vec2::new(vx, vy),
                     state: EntityState::from_bytes(Bytes::copy_from_slice(&state))?,
+                })
+            }
+            Self::REGISTER => {
+                if data.remaining() < 5 { return None; }
+                let peer_type = PeerType::from_byte(data.get_u8())?;
+                let client = data.get_u32();
+                Some(GameMessage::Register {
+                    client_id: ClientId{peer_type, value: client},
                 })
             }
             _ => None,

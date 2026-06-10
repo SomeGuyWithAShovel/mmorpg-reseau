@@ -3,7 +3,7 @@
 use log::{debug, info, warn, error};
 
 use std::collections::HashMap;
-
+use shared::{ClientId, game_message::GameMessage};
 use bytes::{
     BufMut, 
     BytesMut,
@@ -38,104 +38,15 @@ pub enum PubSubMsgType
     Register,    // Peer -> PubSub
 }
 
-impl PubSubMsgType
-{
-    const NUMBER_OF_TYPES: u8 = 6_u8;
-    
-    #[allow(unused)]
-    pub const fn to_u8(&self) -> u8
-    {
-        let value: u8;
-        match self
-        {
-            Self::Subscribe   => { value = 0x01_u8; }
-            Self::Unsubscribe => { value = 0x02_u8; }
-            Self::Publish     => { value = 0x03_u8; }
-            Self::Broadcast   => { value = 0x04_u8; }
-            Self::ClientInput => { value = 0x05_u8; }
-            Self::Register    => { value = 0x06_u8; }
-            Self::None        => { value = 0x00_u8; }
-        }
-        return value;
-    }
-
-    const FROM_U8_ARRAY: [Self; (Self::NUMBER_OF_TYPES+1) as usize] = [
-        Self::None, 
-        Self::Subscribe, 
-        Self::Unsubscribe,
-        Self::Publish, 
-        Self::Broadcast, 
-        Self::ClientInput,
-        Self::Register,
-    ];
-    
-    #[allow(unused)]
-    pub const fn from_u8(value: u8) -> Self
-    {
-        return Self::FROM_U8_ARRAY[ if value <= Self::NUMBER_OF_TYPES { value as usize } else { 0_usize } ]; // /!\ value <= NUMBER_OF_TYPES
-    }
-}
 
 // -------------------------------------------------------------------------------------------------------------------
-
-/**
-    ### PubSubPeerType
-    When Subscribing or Unsubscribing, we pass this enum (as an u8) followed by an u32 (PeerId), to tell the PubSub who needs to be subscribed/unsubscribed to a topic.
-    This allows for a peer to subscribe another peer (for instance, the spatial server subscribes a client to all other entities in its area of interest), 
-    while this other peer (the spatial server, in our example) **does not** need to know the local identifier used by the PubSub's way of communication 
-    (GameStream(u128) if using GameSockets) to identify the peer to subscribe (the client, in our example)
- */
-#[allow(unused)]
-#[derive(Clone, Copy)]
-pub enum PubSubPeerType
-{
-    Client,
-    GameServer,
-    OtherServer
-}
-
-impl PubSubPeerType
-{
-    const NUMBER_OF_TYPES: u8 = 3_u8;
-    
-    #[allow(unused)]
-    pub const fn to_u8(&self) -> u8
-    {
-        let index: u8;
-        match self
-        {
-            Self::Client      => { index = 0x00_u8; }
-            Self::GameServer  => { index = 0x01_u8; }
-            Self::OtherServer => { index = 0x02_u8; }
-        }
-        return index;
-    }
-    
-    const FROM_USIZE_ARRAY: [Self; Self::NUMBER_OF_TYPES as usize] = [
-        Self::Client, 
-        Self::GameServer, 
-        Self::OtherServer,
-    ];
-    
-    #[allow(unused)]
-    pub const fn from_u8(index: u8) -> Option<Self>
-    {
-        return if index < Self::NUMBER_OF_TYPES { Some(Self::FROM_USIZE_ARRAY[index as usize]) } else { None };
-    }
-
-}
-
-// -------------------------------------------------------------------------------------------------------------------
-// -------------------------------------------------------------------------------------------------------------------
-
-type PeerId = u32; // See PubSubPeerType comments
 
 type PeerSocketId = u128; // TODO : replace with GameSockets Connection or Stream or any other Identifier (a tuple of both?). Must be clonable
 
 #[derive(Default)]
 pub struct PubSub
 {
-    pub subs_peer_sockets: [HashMap<PeerId, PeerSocketId>; PubSubPeerType::NUMBER_OF_TYPES as usize],
+    pub subs_peer_sockets: HashMap<ClientId, PeerSocketId>,
 
     pub topic_data: HashMap<String, Vec<u8>>,
     pub topic_subs: HashMap<String, Vec<PeerSocketId>>,
@@ -151,28 +62,28 @@ impl PubSub
         Gets the PeerSocketId (used by GameSockets to actually communicate with a peer) from a PubSubPeerType (u8) and a PeerId (u32)
      */
     #[allow(unused)]
-    pub fn get_peer_socket_id(&self, peer_type: PubSubPeerType, peer_id: PeerId) -> Option<PeerSocketId>
+    pub fn get_peer_socket_id(&self, client_id: ClientId) -> Option<PeerSocketId>
     {
-        return self.subs_peer_sockets[peer_type.to_u8() as usize].get(&peer_id).cloned();
+        return self.subs_peer_sockets.get(&client_id).cloned();
     }
 
     /**
         Sets a PeerSocketId (used by GameSockets to actually communicate with a peer) that corresponds to a PubSubPeerType (u8) and a PeerId (u32)
     */
     #[allow(unused)]
-    pub fn set_peer_socket_id(&mut self, peer_type: PubSubPeerType, peer_id: PeerId, peer_socket_id:  PeerSocketId)
+    pub fn set_peer_socket_id(&mut self, client_id: ClientId, peer_socket_id: PeerSocketId)
     {
-        let insert_result = self.subs_peer_sockets[peer_type.to_u8() as usize].insert(peer_id, peer_socket_id);
+        let insert_result = self.subs_peer_sockets.insert(client_id, peer_socket_id);
         if insert_result.is_some()
         {
             warn!(
-                "set_peer_socket_id() : (type {}; peer_id {}) was already present in subs_peer_sockets, with peer_socket_id = {} (it is now set to {})", 
-                peer_type.to_u8(), peer_id, insert_result.unwrap(), peer_socket_id
+                "set_peer_socket_id() : (client_id:{:?}) was already present in subs_peer_sockets, with peer_socket_id = {} (it is now set to {})", 
+                client_id, insert_result.unwrap(), peer_socket_id
             );
         }
         else
         {
-            info!("set_peer_socket_id() : added peer_socket_id {} as type {} and id {}", peer_socket_id, peer_type.to_u8(), peer_id);
+            info!("set_peer_socket_id() : added peer_socket_id {} as type {:?}", peer_socket_id ,client_id);
         }
         return;
     }
@@ -330,19 +241,11 @@ impl PubSub
         let get_result = subs_buffers.get_mut(&peer_socket_id);
         if let Some(packet) = get_result
         {
-            if packet.len() == 0 // there is a buffer already, but it is empty
-            {
-                packet.put_u8(PubSubMsgType::Broadcast.to_u8());
-            }
             packet.put_slice(bytes);
         }
         else // there isn't any buffer
         {
-            let header_size: usize = size_of::<u8>();
-
-            let mut new_packet = BytesMut::with_capacity(header_size + bytes.len());
-
-            new_packet.put_u8(PubSubMsgType::Broadcast.to_u8());
+            let mut new_packet = BytesMut::with_capacity(bytes.len());
 
             new_packet.put_slice(bytes);
             
@@ -353,7 +256,7 @@ impl PubSub
     }
 
     /**
-        For all peers, we send them their buffers (it should already be formatted correctly) through the network
+        For all peers, we send them their buffers through the network
      */
     pub fn flush_peer_buffers(subs_buffers: &mut HashMap<PeerSocketId, BytesMut>)
     {
@@ -361,11 +264,24 @@ impl PubSub
         {
             if packet.len() > 0_usize
             {
+                // Pelle:
+                // Reconstruire l'entiereté du packet Broadcast était un peu lourd dans ta version
+                // J'ai préféré le construire qu'une fois ici
+                //
+                // Peut-être vider le contenu de BytesMut ?                
+                let mut payload_bytes = packet.clone().freeze();
+                let mut payload = vec![0u8; payload_bytes.len()];
+                payload_bytes.copy_to_slice(&mut payload);
+                
+                let mut packet_bytes = BytesMut::new();
+                GameMessage::Broadcast{payload}.append_bytes(&mut packet_bytes);
+                
                 println!(
                     "flush_peer_buffers() : sending to {} : {}", 
                     peer_socket_id, u8_slice_to_hex_string(&packet)
-                )
-                // TODO : send 'packet' to 'peer_socket_id'
+                );               
+                
+                // TODO : send 'packet_bytes' to 'peer_socket_id'
             }
         }
         subs_buffers.clear();
@@ -375,114 +291,45 @@ impl PubSub
     /**
         "Unserializes" received packets and calls related functions with the wanted parameters
      */
-    pub fn process_received_packet(&mut self, peer_socket_id: PeerSocketId, mut bytes: Bytes)
+    pub fn process_received_packet(&mut self, peer_socket_id: PeerSocketId, bytes: Bytes)
     {
-        let raw_msg_type: u8 = bytes.get_u8();
-        let msg_type: PubSubMsgType = PubSubMsgType::from_u8(raw_msg_type);
-        match msg_type
-        {
-            PubSubMsgType::None =>
-            {
-                error!("process_received_packet() : packet type is invalid ({})", raw_msg_type);
-            }
-
-            PubSubMsgType::Register => 
-            {
-                let peer_type_raw = bytes.get_u8();
-                let Some(peer_type) = PubSubPeerType::from_u8(peer_type_raw)
-                else
-                {
-                    error!("process_received_packet() : peer type is invalid ({})", peer_type_raw);
-                    return;
-                };
-
-                let peer_id = bytes.get_u32();
-
-                self.set_peer_socket_id(peer_type, peer_id, peer_socket_id);
-
-            }
-
-            PubSubMsgType::Subscribe | PubSubMsgType::Unsubscribe =>
-            {
-                let peer_to_sub_type_raw = bytes.get_u8();
-                let Some(peer_to_sub_type) = PubSubPeerType::from_u8(peer_to_sub_type_raw)
-                else
-                {
-                    error!("process_received_packet() : peer type is invalid ({})", peer_to_sub_type_raw);
-                    return;
-                };
-
-                let peer_to_sub_id = bytes.get_u32();
-
-                let Some(peer_to_sub) = self.get_peer_socket_id(peer_to_sub_type, peer_to_sub_id)
-                else
-                {
-                    error!("process_received_packet() : peer to {} couldn't be found (type={}, id={})", 
-                        match msg_type { 
-                            PubSubMsgType::Subscribe => {"subscribe"} 
-                            PubSubMsgType::Unsubscribe => {"unsubscribe"} 
-                            _ => { panic!("process_received_packet() : unreachable code reached") } 
-                        },
-                        peer_to_sub_type_raw, peer_to_sub_id
-                    );
-                    return;    
-                };
-
-                let topic_string_size: usize = bytes.get_u16() as usize;
-                let topic_bytes = bytes.split_to(topic_string_size);
-                let Ok(topic) = str::from_utf8(&topic_bytes)
-                else
-                {
-                    error!("process_received_packet() : Subscribe/Unsubscribe: Topic received isn't a valid utf-8 &str");
-                    return;
-                };
-                
-                match msg_type
-                {
-                    PubSubMsgType::Subscribe => 
-                    {
-                        self.subscribe(peer_to_sub, topic);
+        if let Some(msg) = GameMessage::from_bytes(&mut bytes.clone()) {
+            match msg {
+                GameMessage::Register{client_id} => {
+                    self.set_peer_socket_id(client_id, peer_socket_id);
+                }
+                GameMessage::Subscribe{client_id, topic} => {
+                    if let Some(peer_to_sub) = self.get_peer_socket_id(client_id) {
+                        self.subscribe(peer_to_sub, topic.as_str());
                     }
-
-                    PubSubMsgType::Unsubscribe =>
+                    else
                     {
-                        self.unsubscribe(peer_to_sub, topic);
+                        error!("process_received_packet() : peer to subscribe couldn't be found ({:?})", client_id);
+                    };
+                }
+                GameMessage::Unsubscribe{client_id, topic} => {
+                    if let Some(peer_to_sub) = self.get_peer_socket_id(client_id) {
+                        self.unsubscribe(peer_to_sub, topic.as_str());
                     }
-                    _ => { panic!("process_received_packet() : unreachable code reached");}
+                    else
+                    {
+                        error!("process_received_packet() : peer to unsubscribe couldn't be found ({:?})", client_id);
+                    };
+                }
+                GameMessage::Publish{topic, payload} => {
+                    // TODO : check for authority (client can't set some entity's position, only a server can publish its status (CPU usage,...), ...)
+                    self.publish(topic.as_str(), &payload);
+                }
+                GameMessage::ClientInput{client_id:_, input:_} => {
+                    warn!("process_received_packet() : received a ClientInput");
+                }
+                _ => {
+                    error!("process_received_packet() : Unhandled message : {:?}", msg);
                 }
             }
-
-            PubSubMsgType::Publish =>
-            {
-                // TODO : check for authority (client can't set some entity's position, only a server can publish its status (CPU usage,...), ...)
-
-                let topic_string_size: usize = bytes.get_u16() as usize; debug!("TOPIC_SIZE: {}", topic_string_size);
-                let topic_bytes = bytes.split_to(topic_string_size);
-                let Ok(topic) = str::from_utf8(&topic_bytes)
-                else
-                {
-                    error!("process_received_packet() : Subscribe/Unsubscribe: Topic received isn't a valid utf-8 &str");
-                    return;
-                };
-
-                debug!("process_received_packet() : TOPIC: \"{}\"", topic);
-
-                let data_size: usize = bytes.get_u16() as usize;
-                let data_bytes = bytes.split_to(data_size);
-
-                self.publish(topic, &data_bytes);
-            }
-
-            PubSubMsgType::Broadcast =>
-            {
-                error!("process_received_packet() : received a Broadcast message. Broadcast messages should only be sent BY the PubSub, not TO the PubSub")
-            }
-
-            PubSubMsgType::ClientInput =>
-            {
-                warn!("process_received_packet() : received a ClientInput");
-            }
-
+        }
+        else {
+            error!("process_received_packet() : packet is invalid ({:?})", bytes);
         }
     }
     

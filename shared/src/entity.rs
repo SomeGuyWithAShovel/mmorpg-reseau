@@ -1,6 +1,6 @@
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use bevy::prelude::*;
-pub use crate::ClientId;
+use crate::game_message::{ClientId, PeerType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EntityId(pub u32);
@@ -48,7 +48,8 @@ impl EntityState {
         match self {
             EntityState::PlayerState{id} => {
                 out.put_u8(Self::PLAYER_STATE);
-                out.put_u32(id.0);
+                out.put_u8(id.peer_type.to_byte());
+                out.put_u32(id.value);
             }
             EntityState::Other => {
                 out.put_u8(Self::OTHER);
@@ -65,8 +66,12 @@ impl EntityState {
 
         match tag {
             Self::PLAYER_STATE => {
+                let peer_type = PeerType::from_byte(data.get_u8())?;
                 let id = data.get_u32();
-                Some(Self::PlayerState{id:ClientId(id)})
+                Some(Self::PlayerState{id:ClientId{
+                    peer_type,
+                    value:id,                    
+                }})
             }
             Self::OTHER => {
                 Some(Self::Other)

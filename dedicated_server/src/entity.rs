@@ -1,4 +1,4 @@
-use shared::{entity::*, input::*, game_message::Border};
+use shared::{entity::*, input::*, game_message::{Border, ClientId}};
 
 use bevy::{
     prelude::*,

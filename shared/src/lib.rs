@@ -89,6 +89,7 @@ impl Heartbeat {
     }
 }
 
+pub use crate::game_message::ClientId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -97,9 +98,6 @@ pub struct LoginRequest
     pub username: String,
     pub password: String,
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ClientId(pub u32);
 
 #[derive(Serialize, Deserialize)]
 pub struct LoginSuccess
