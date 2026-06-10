@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
+use bytes::{Buf, BytesMut};
 
 mod server;
 use crate::server::*;
@@ -27,6 +28,9 @@ struct DedicatedServerConnection {
     stream : GameStream,
 }
 
+#[derive(Resource, Deref, DerefMut)]
+struct NetworkMessage(BytesMut);
+
 #[derive(Resource)]
 struct DedicatedServerPeer {
     broker_peer: GamePeer,
@@ -46,6 +50,7 @@ fn main() {
         .add_plugins(MinimalPlugins)
         .add_plugins(EntityPlugin)
         .add_plugins(MessagePlugin)
+        .insert_resource(NetworkMessage(BytesMut::new()))
         .insert_resource(ServerConfig::from_env())
         .insert_resource(HeartbeatTimer(Timer::from_seconds(SECONDS_BETWEEN_HEARTBEATS , TimerMode::Repeating)))
         .add_systems(Startup, bind_socket.chain())
@@ -53,7 +58,8 @@ fn main() {
     // PreUpdate pour passer avant FixedUpdate de EntityPlugin
     // Ordre : https://docs.rs/bevy/0.13.2/bevy/app/struct.Main.html
         .add_systems(PreUpdate, receive_packets)
-        .add_systems(Update, send_heartbeat_periodically)        
+        .add_systems(Update, send_heartbeat_periodically)
+        .add_systems(PostUpdate, send_network_package)
         .run();
 }
 
@@ -99,16 +105,19 @@ fn bind_socket(mut commands : Commands, config : Res<ServerConfig>) -> Result {
 }
 
 fn message_received(
-    peer_res : &DedicatedServerPeer,
-    connection : &GameConnection,
-    stream : &GameStream,
+    network_message : &mut NetworkMessage,
     data : Bytes,
     player_input_writer : &mut MessageWriter<PlayerActionHolderMessage>,
     entity_creation_writer : &mut MessageWriter<CreateEntity>,
     ghost_update_writer : &mut MessageWriter<UpdateGhostEntity>,
     unghost_writer : &mut MessageWriter<GhostToOwned>,
     pending_writer : &mut MessageWriter<OwnedToPending>) -> Result {
-    if let Some(message) = GameMessage::from_bytes(data.clone()) {
+
+    // Pour le message d'erreur
+    let mut data_copy = data.clone();
+    let mut remaining = data.remaining();
+    
+    while let Some(message) = GameMessage::from_bytes(&mut data_copy) {
         match message {
             GameMessage::ClientInput{ client_id, input } => {
                 let act = PlayerActionHolder{data : input[0]};
@@ -123,7 +132,7 @@ fn message_received(
                     },
                     pos, vel, state,
                 });
-                peer_res.broker_peer.send(connection, stream, GameMessage::HandoffAccept{entity_id}.to_bytes())?;
+                GameMessage::HandoffAccept{entity_id}.append_bytes(&mut *network_message);
             }
             GameMessage::HandoffAccept { entity_id } => {
                 pending_writer.write(OwnedToPending{id: entity_id});
@@ -138,9 +147,12 @@ fn message_received(
                 warn!("Message non interprétable par le serveur : {:?}", message);
             }
         }
+        remaining = data_copy.remaining();
     }
-    else {
-        warn!("Message non désérialisable : {:?}", data);
+    
+    if remaining > 0 {
+        let slice = data.slice((data.len() - remaining)..);
+        warn!("Message non désérialisable : {:?}", slice);
     }
     Ok(())
 }
@@ -149,12 +161,13 @@ fn receive_packets(
     config : Res<ServerConfig>,
     players : Query<(), With<PlayerTag>>,
     mut peer_res : ResMut<DedicatedServerPeer>,
+    mut network_message : ResMut<NetworkMessage>,
     mut player_input_writer : MessageWriter<PlayerActionHolderMessage>,
     mut entity_creation_writer : MessageWriter<CreateEntity>,
     mut ghost_update_writer : MessageWriter<UpdateGhostEntity>,
     mut unghost_writer : MessageWriter<GhostToOwned>,
     mut pending_writer : MessageWriter<OwnedToPending>) -> Result {
-    if let Some(event) = peer_res.broker_peer.poll()? {
+    while let Some(event) = peer_res.broker_peer.poll()? {
         //todo!("Gestion de la connexion avec le broker plutôt que des clients");
         match event {
             GameNetworkEvent::Connected(connection) => {
@@ -164,8 +177,8 @@ fn receive_packets(
                 info!("Déconnexion broker {:?}", connection);
                 peer_res.broker_connection = None;
             }
-            GameNetworkEvent::Message{ connection, stream, data } => {
-                message_received(&peer_res, &connection, &stream, data,
+            GameNetworkEvent::Message{ data, .. } => {
+                message_received(&mut network_message, data,
                                  &mut player_input_writer,
                                  &mut entity_creation_writer,
                                  &mut ghost_update_writer,
@@ -189,7 +202,7 @@ fn receive_packets(
         }
     }
 
-    if let Some(event) = peer_res.heartbeat_peer.poll()? {
+    while let Some(event) = peer_res.heartbeat_peer.poll()? {
         match event {
             GameNetworkEvent::Connected(connection) => {                
                 peer_res.heartbeat_peer.create_stream(connection, GameStreamReliability::Unreliable)?;
@@ -215,7 +228,7 @@ fn receive_packets(
                     DedicatedServerConnection{connection, stream}
                 );
                 let player_count = players.count();
-                send_heartbeat(config, peer_res, player_count)?;
+                send_heartbeat(&config, &peer_res, player_count)?;
                 
             }
             GameNetworkEvent::StreamClosed(_connection, _stream) => {                
@@ -230,8 +243,8 @@ fn receive_packets(
 
 
 fn send_heartbeat(
-    config : Res<ServerConfig>,
-    peer_res : ResMut<DedicatedServerPeer>,
+    config : &ServerConfig,
+    peer_res : &DedicatedServerPeer,
     player_count : usize) -> Result {
     
     if let Some(orchestrator) = &peer_res.orchestrator_connection {
@@ -264,7 +277,19 @@ fn send_heartbeat_periodically(
     
     if timer.0.tick(time.delta()).just_finished() {
         let player_count = players.count();
-        send_heartbeat(config, peer_res, player_count)?;
+        send_heartbeat(&config, &peer_res, player_count)?;
     }
     Ok(())    
+}
+
+fn send_network_package(peer_res : ResMut<DedicatedServerPeer>, mut network_message : ResMut<NetworkMessage>) -> Result {
+    if let Some(DedicatedServerConnection{connection, stream}) = &peer_res.broker_connection {
+        let bytes = network_message.clone().freeze();
+        network_message.0 = BytesMut::new();
+        peer_res.broker_peer.send(connection, stream, bytes)?;
+    }
+    else {
+        warn!("Tentative d'envoi de message alors que le broker n'est pas connecté");
+    }
+    Ok(())
 }

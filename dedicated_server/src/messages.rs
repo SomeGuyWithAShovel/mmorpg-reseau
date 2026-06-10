@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use crate::entity::*;
 use shared::{entity::*, input::*, game_message::*};
-use crate::{receive_packets, DedicatedServerPeer, DedicatedServerConnection};
+use crate::{receive_packets, NetworkMessage};
 
 #[derive(Message)]
 pub struct CreateEntity {
@@ -164,55 +164,41 @@ fn owned_to_pending(
 }
 
 fn notify_border_crossing(event : On<CrossedBorder>,
-                query : Query<(&EntityTag, &Velocity, &Transform, Option<&PlayerTag>)>,
-                peer_res : ResMut<DedicatedServerPeer>,
-) -> Result {
+                          query : Query<(&EntityTag, &Velocity, &Transform, Option<&PlayerTag>)>,
+                          mut network_message : ResMut<NetworkMessage>,
+) {
     if let Ok((tag, vel, transform, opt_player_tag)) = query.get(event.entity) {
-        if let Some(DedicatedServerConnection{connection, stream}) = &peer_res.broker_connection {
-
-
-            let msg : GameMessage;
-            if let Some(player_tag) = opt_player_tag {
-                msg = GameMessage::HandoffRequest {
-                    entity_id : tag.id,
-                    pos: transform.translation.xy(),
-                    vel: vel.v,
-                    border : event.border,
-                    state : EntityState::PlayerState{id: player_tag.id},
-                }
+        let msg : GameMessage;
+        if let Some(player_tag) = opt_player_tag {
+            msg = GameMessage::HandoffRequest {
+                entity_id : tag.id,
+                pos: transform.translation.xy(),
+                vel: vel.v,
+                border : event.border,
+                state : EntityState::PlayerState{id: player_tag.id},
             }
-            else {
-                msg = GameMessage::HandoffRequest {
-                    entity_id : tag.id,
-                    pos: transform.translation.xy(),
-                    vel: vel.v,
-                    border : event.border,
-                    state : EntityState::Other,
-                };
-            }
-            
-            peer_res.broker_peer.send(connection, stream, msg.to_bytes())?;
         }
         else {
-            warn!("Aucune connexion au broker lors d'un passage de frontière");
+            msg = GameMessage::HandoffRequest {
+                entity_id : tag.id,
+                pos: transform.translation.xy(),
+                vel: vel.v,
+                border : event.border,
+                state : EntityState::Other,
+            };
+
         }
+        msg.append_bytes(&mut network_message);        
     }
-    Ok(())
 }
 
 fn notify_authority_handoff(event : On<HandoffAuthority>,
                             tags : Query<&mut EntityTag>,
-                            peer_res : ResMut<DedicatedServerPeer>) -> Result {
+                            mut network_message : ResMut<NetworkMessage>) {
     if let Ok(tag) = tags.get(event.entity) {
-        if let Some(DedicatedServerConnection{connection, stream}) = &peer_res.broker_connection {
-            peer_res.broker_peer.send(connection, stream, GameMessage::HandoffComplete {
-                entity_id: tag.id,
-                border: event.border,                    
-            }.to_bytes())?;
-        }
-        else {
-            warn!("Aucune connexion au broker lors d'un passage d'autorité");
-        }
+        GameMessage::HandoffComplete {
+            entity_id: tag.id,
+            border: event.border,                    
+        }.append_bytes(&mut network_message);
     }
-    Ok(())
 }

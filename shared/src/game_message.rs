@@ -246,14 +246,6 @@ impl GameMessage {
             _ => None,
         }        
     }
-
-    pub fn list_from_bytes(data : &mut Bytes) -> Vec<Self> {
-        let mut res = Vec::new();
-        while let Some(msg) = Self::from_bytes(data) {
-            res.push(msg);
-        }
-        return res;
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
