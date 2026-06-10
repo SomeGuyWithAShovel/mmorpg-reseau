@@ -56,6 +56,7 @@ impl Topic {
         out.put_slice(&(*self).clone().into_bytes());
     }
     fn from_bytes(data : &mut Bytes) -> Option<Topic> {
+        if data.remaining() < size_of::<u16>() { return None; }
         let len = data.get_u16() as usize;
         if data.remaining() < len { return None; }
         let mut topic = vec![0u8; len];
