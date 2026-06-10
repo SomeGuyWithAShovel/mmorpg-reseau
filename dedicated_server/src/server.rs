@@ -54,6 +54,10 @@ impl ServerConfig {
         let right  = Self::parse_env_var("DS_BORDER_RIGHT"  , 0.0);
         return Rect::new(top, left, bottom, right);
     }
+
+    pub fn get_own_client_id(&self) -> u128 {
+        self.id.as_u128()
+    }
 }
 
 impl fmt::Display for ServerConfig {

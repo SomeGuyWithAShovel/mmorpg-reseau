@@ -74,7 +74,10 @@ fn find_server(mut commands : Commands) -> Result {
         let peer = GamePeer::new(QuicBackend::new());
         peer.connect(user.server.ip.to_string().as_str(), user.server.port)?;
         commands.insert_resource(BrokerConnection{
-            client_id: user.player_id,
+            client_id: ClientId{
+                peer_type:PeerType::Client,
+                value:user.player_id.as_u128(),
+            },
             peer,
             game_socket: None,
         });
@@ -149,7 +152,9 @@ fn recieve_packets(mut conn : ResMut<BrokerConnection>,
 }
 
 fn join_message(client_id : ClientId) -> Bytes {
-    todo!("Changer message de connexion (probablement un publish ?)");
+    GameMessage::Register{
+        client_id
+    }.as_bytes()
 }
 
 fn handle_server_message(data : &Bytes, msg_writer : &mut MessageWriter<UpdateEntity>) {

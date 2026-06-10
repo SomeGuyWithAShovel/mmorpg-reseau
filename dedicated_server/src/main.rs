@@ -166,7 +166,6 @@ fn receive_packets(
     mut unghost_writer : MessageWriter<GhostToOwned>,
     mut pending_writer : MessageWriter<OwnedToPending>) -> Result {
     while let Some(event) = peer_res.broker_peer.poll()? {
-        //todo!("Gestion de la connexion avec le broker plutôt que des clients");
         match event {
             GameNetworkEvent::Connected(connection) => {
                 info!("Connexion broker : {:?}", connection);
@@ -184,10 +183,13 @@ fn receive_packets(
                                  &mut pending_writer);
             }
             GameNetworkEvent::StreamCreated(connection, stream) => {
-                info!("Création de stream avec le broker {:?}", connection);
-                peer_res.broker_connection = Some(
-                    DedicatedServerConnection{connection, stream}
-                );
+                info!("Création de stream avec le broker {:?}", connection);                
+                let client_id = ClientId{
+                    peer_type: PeerType::GameServer,
+                    value:config.get_own_client_id(),
+                };
+                peer_res.broker_peer.send(&connection, &stream, GameMessage::Register{client_id}.as_bytes())?;
+                peer_res.broker_connection = Some(DedicatedServerConnection{connection, stream});
             }
             GameNetworkEvent::StreamClosed(connection, _) => {
                 warn!("Fermeture du stream avec le broker {:?} ?", connection);
