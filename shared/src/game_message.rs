@@ -3,18 +3,36 @@ use bevy::prelude::*;
 
 use crate::entity::*;
 
+#[derive(Debug, Deref, DerefMut)]
+pub struct Topic(pub String);
+
+impl Topic {
+    fn append_bytes(&self, out : &mut BytesMut) {
+        out.put_u16(self.len() as u16);
+        out.put_slice(&(*self).clone().into_bytes());
+    }
+    fn from_bytes(data : &mut Bytes) -> Option<Topic> {
+        let len = data.get_u16() as usize;
+        if data.remaining() < len { return None; }
+        let mut topic = vec![0u8; len];
+        data.copy_to_slice(&mut topic);
+        let topic_str = String::from_utf8(topic).ok()?;
+        Some(Topic(topic_str))
+    }
+}
+
 #[derive(Debug)]
 pub enum GameMessage {
     Subscribe {
         client_id : ClientId,
-        topic : [u8; 32],
+        topic : Topic,
     },
     Unsubscribe {
         client_id : ClientId,
-        topic : [u8; 32],
+        topic : Topic,
     },
     Publish {
-        topic : [u8; 32],
+        topic : Topic,
         payload : Vec<u8>,
     },
     Broadcast {
@@ -63,24 +81,22 @@ impl GameMessage {
     const HANDOFF_REJECT: u8 = 0x22;
     const GHOST_UPDATE: u8 = 0x23;
     const HANDOFF_COMPLETE: u8 = 0x24;
-
-    pub fn to_bytes(&self) -> Bytes {
-        let mut out = BytesMut::new();
-
+    
+    pub fn append_bytes(&self, out : &mut BytesMut) {
         match self {
             GameMessage::Subscribe { client_id, topic } => {
                 out.put_u8(Self::SUBSCRIBE);
                 out.put_u32(client_id.0);
-                out.put_slice(topic);
+                topic.append_bytes(out);
             }
             GameMessage::Unsubscribe { client_id, topic } => {
                 out.put_u8(Self::UNSUBSCRIBE);
                 out.put_u32(client_id.0);
-                out.put_slice(topic);
+                topic.append_bytes(out);
             }
             GameMessage::Publish { topic, payload } => {
                 out.put_u8(Self::PUBLISH);
-                out.put_slice(topic);
+                topic.append_bytes(out);
                 out.put_u64(payload.len() as u64);
                 out.put_slice(payload);
             }
@@ -127,11 +143,9 @@ impl GameMessage {
                 out.put_u8(border.to_byte());
             }
         }
-
-        out.freeze()
     }
 
-    pub fn from_bytes(mut data: Bytes) -> Option<Self> {
+    pub fn from_bytes(data: &mut Bytes) -> Option<Self> {
         if !data.has_remaining() { return None; }
         let tag = data.get_u8();
 
@@ -139,21 +153,18 @@ impl GameMessage {
             Self::SUBSCRIBE => {
                 if data.remaining() < 4 + 32 { return None; }
                 let client = data.get_u32();
-                let mut topic = [0u8; 32];
-                data.copy_to_slice(&mut topic);
+                let topic = Topic::from_bytes(data)?;
                 Some(GameMessage::Subscribe { client_id: ClientId(client), topic })
             }
             Self::UNSUBSCRIBE => {
                 if data.remaining() < 4 + 32 { return None; }
                 let client = data.get_u32();
-                let mut topic = [0u8; 32];
-                data.copy_to_slice(&mut topic);
+                let topic = Topic::from_bytes(data)?;
                 Some(GameMessage::Unsubscribe { client_id: ClientId(client), topic })
             }
             Self::PUBLISH => {
                 if data.remaining() < 32 + 8 { return None; }
-                let mut topic = [0u8; 32];
-                data.copy_to_slice(&mut topic);
+                let topic = Topic::from_bytes(data)?;
                 let len = data.get_u64() as usize;
                 if data.remaining() < len { return None; }
                 let mut payload = vec![0u8; len];
@@ -233,7 +244,15 @@ impl GameMessage {
                 })
             }
             _ => None,
+        }        
+    }
+
+    pub fn list_from_bytes(data : &mut Bytes) -> Vec<Self> {
+        let mut res = Vec::new();
+        while let Some(msg) = Self::from_bytes(data) {
+            res.push(msg);
         }
+        return res;
     }
 }
 
