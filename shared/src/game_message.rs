@@ -162,12 +162,12 @@ impl GameMessage {
             GameMessage::Publish { topic, payload } => {
                 out.put_u8(Self::PUBLISH);
                 topic.append_bytes(out);
-                out.put_u64(payload.len() as u64);
+                out.put_u16(payload.len() as u16);
                 out.put_slice(payload);
             }
             GameMessage::Broadcast { payload } => {
                 out.put_u8(Self::BROADCAST);
-                out.put_u64(payload.len() as u64);
+                out.put_u16(payload.len() as u16);
                 out.put_slice(payload);
             }
             GameMessage::ClientInput { client_id, input } => {
@@ -246,16 +246,16 @@ impl GameMessage {
             }
             Self::PUBLISH => {
                 let topic = Topic::from_bytes(data)?;
-                if data.remaining() < size_of::<u64>() { return None; }
-                let len = data.get_u64() as usize;
+                if data.remaining() < size_of::<u16>() { return None; }
+                let len = data.get_u16() as usize;
                 if data.remaining() < len { return None; }
                 let mut payload = vec![0u8; len];
                 data.copy_to_slice(&mut payload);
                 Some(GameMessage::Publish { topic, payload })
             }
             Self::BROADCAST => {
-                if data.remaining() < size_of::<u64>() { return None; }
-                let len = data.get_u64() as usize;
+                if data.remaining() < size_of::<u16>() { return None; }
+                let len = data.get_u16() as usize;
                 if data.remaining() < len { return None; }
                 let mut payload = vec![0u8; len];
                 data.copy_to_slice(&mut payload);
