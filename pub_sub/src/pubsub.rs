@@ -42,7 +42,8 @@ pub enum PubSubMsgType
 
 use game_sockets::{GameConnection, GameStream, GamePeer};
 
-#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
+// J'aimerai lui faire dériver Copy, mais GameStream ne l'implémente pas...
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct PeerSocketId(pub GameConnection, pub GameStream);
 
 #[derive(Default)]
@@ -75,7 +76,7 @@ impl PubSub
     #[allow(unused)]
     pub fn set_peer_socket_id(&mut self, client_id: ClientId, peer_socket_id: PeerSocketId)
     {
-        let insert_result = self.subs_peer_sockets.insert(client_id, peer_socket_id);
+        let insert_result = self.subs_peer_sockets.insert(client_id, peer_socket_id.clone());
         if insert_result.is_some()
         {
             warn!(
@@ -99,18 +100,18 @@ impl PubSub
         {
             None => 
             {
-                self.topic_subs.insert(topic.to_owned(), vec![peer_socket_id]);
+                self.topic_subs.insert(topic.to_owned(), vec![peer_socket_id.clone()]);
                 info!("subscribe() : {:?} is now subscribed to topic \"{:?}\"", peer_socket_id, topic);
             }
 
             Some(subs_vec) => 
             {
-                if subs_vec.contains(&peer_socket_id) == false
+                if subs_vec.contains(&peer_socket_id.clone()) == false
                 {
                     // insert in a sorted way, so we can test contains() in O(log(n)) instead of O(n) ?
                     // (but then in unsubscribe, we can't use swap_remove() in O(1), we would need to remove() in O(n) there) ?
 
-                    subs_vec.push(peer_socket_id);
+                    subs_vec.push(peer_socket_id.clone());
                     info!("subscribe() : {:?} is now subscribed to topic \"{:?}\"", peer_socket_id, topic);
                 }
                 else
@@ -227,7 +228,7 @@ impl PubSub
             // modify the topic_data inside this function, 
             // while we still hold and use (in the next iteration of the loop) non mutable references to the topic_data
             
-            Self::add_subpacket_for_peer(&mut self.subs_buffers, *peer_socket_id, &packet);
+            Self::add_subpacket_for_peer(&mut self.subs_buffers, peer_socket_id.clone(), &packet);
         }
         return;
     }
@@ -240,7 +241,7 @@ impl PubSub
      */
     fn add_subpacket_for_peer(subs_buffers: &mut HashMap<PeerSocketId, BytesMut>, peer_socket_id:  PeerSocketId, bytes: &Bytes)
     {
-        let get_result = subs_buffers.get_mut(&peer_socket_id);
+        let get_result = subs_buffers.get_mut(&peer_socket_id.clone());
         if let Some(packet) = get_result
         {
             packet.put_slice(bytes);
@@ -251,9 +252,9 @@ impl PubSub
 
             new_packet.put_slice(bytes);
             
-            subs_buffers.insert(peer_socket_id, new_packet);
+            subs_buffers.insert(peer_socket_id.clone(), new_packet);
         }
-        debug!("add_subpacket_for_peer() : peer {:?}: buffer=0x{}", peer_socket_id, u8_slice_to_hex_string(subs_buffers.get(&peer_socket_id).unwrap()));
+        debug!("add_subpacket_for_peer() : peer {:?}: buffer=0x{}", peer_socket_id.clone(), u8_slice_to_hex_string(subs_buffers.get(&peer_socket_id).unwrap()));
         return;
     }
 
