@@ -8,7 +8,6 @@ use bytes::{
     BufMut, 
     BytesMut,
     Bytes,
-    Buf,
 };
 
 // -------------------------------------------------------------------------------------------------------------------
@@ -41,7 +40,10 @@ pub enum PubSubMsgType
 
 // -------------------------------------------------------------------------------------------------------------------
 
-type PeerSocketId = u128; // TODO : replace with GameSockets Connection or Stream or any other Identifier (a tuple of both?). Must be clonable
+use game_sockets::{GameConnection, GameStream, GamePeer};
+
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
+pub struct PeerSocketId(pub GameConnection, pub GameStream);
 
 #[derive(Default)]
 pub struct PubSub
@@ -77,13 +79,13 @@ impl PubSub
         if insert_result.is_some()
         {
             warn!(
-                "set_peer_socket_id() : (client_id:{:?}) was already present in subs_peer_sockets, with peer_socket_id = {} (it is now set to {})", 
+                "set_peer_socket_id() : (client_id:{:?}) was already present in subs_peer_sockets, with peer_socket_id = {:?} (it is now set to {:?})", 
                 client_id, insert_result.unwrap(), peer_socket_id
             );
         }
         else
         {
-            info!("set_peer_socket_id() : added peer_socket_id {} as type {:?}", peer_socket_id ,client_id);
+            info!("set_peer_socket_id() : added peer_socket_id {:?} as type {:?}", peer_socket_id ,client_id);
         }
         return;
     }
@@ -98,7 +100,7 @@ impl PubSub
             None => 
             {
                 self.topic_subs.insert(topic.to_owned(), vec![peer_socket_id]);
-                info!("subscribe() : {} is now subscribed to topic \"{}\"", peer_socket_id, topic);
+                info!("subscribe() : {:?} is now subscribed to topic \"{:?}\"", peer_socket_id, topic);
             }
 
             Some(subs_vec) => 
@@ -109,11 +111,11 @@ impl PubSub
                     // (but then in unsubscribe, we can't use swap_remove() in O(1), we would need to remove() in O(n) there) ?
 
                     subs_vec.push(peer_socket_id);
-                    info!("subscribe() : {} is now subscribed to topic \"{}\"", peer_socket_id, topic);
+                    info!("subscribe() : {:?} is now subscribed to topic \"{:?}\"", peer_socket_id, topic);
                 }
                 else
                 {
-                    warn!("subscribe() : {} is already subscribed to topic \"{}\"", peer_socket_id, topic);
+                    warn!("subscribe() : {:?} is already subscribed to topic \"{:?}\"", peer_socket_id, topic);
                 }
             }
         }
@@ -132,19 +134,19 @@ impl PubSub
                 let Some(found_id) = subs_vec.iter().position(|val| {*val == peer_socket_id} )
                 else
                 {
-                    warn!("unsubscribe() : {} wasn't subscribed to topic \"{}\"", peer_socket_id, topic);
+                    warn!("unsubscribe() : {:?} wasn't subscribed to topic \"{:?}\"", peer_socket_id, topic);
                     return;
                 };
                 
                 // subs_vec[found_id] == peer_socket_id
                 subs_vec.swap_remove(found_id);
 
-                info!("unsubscribe() : {} is now unsubscribed to topic \"{}\"", peer_socket_id, topic);
+                info!("unsubscribe() : {:?} is now unsubscribed to topic \"{:?}\"", peer_socket_id, topic);
             }
 
             None => 
             {
-                warn!("unsubscribe() : {} wasn't subscribed to topic \"{}\"", peer_socket_id, topic);
+                warn!("unsubscribe() : {:?} wasn't subscribed to topic \"{:?}\"", peer_socket_id, topic);
             }
         }
         return;
@@ -251,16 +253,16 @@ impl PubSub
             
             subs_buffers.insert(peer_socket_id, new_packet);
         }
-        debug!("add_subpacket_for_peer() : peer {}: buffer=0x{}", peer_socket_id, u8_slice_to_hex_string(subs_buffers.get(&peer_socket_id).unwrap()));
+        debug!("add_subpacket_for_peer() : peer {:?}: buffer=0x{}", peer_socket_id, u8_slice_to_hex_string(subs_buffers.get(&peer_socket_id).unwrap()));
         return;
     }
 
     /**
         For all peers, we send them their buffers through the network
      */
-    pub fn flush_peer_buffers(subs_buffers: &mut HashMap<PeerSocketId, BytesMut>)
+    pub fn flush_peer_buffers(&mut self, peer : &mut GamePeer)
     {
-        for (peer_socket_id, packet) in subs_buffers.iter()
+        for (peer_socket_id, packet) in self.subs_buffers.iter()
         {
             if packet.len() > 0_usize
             {
@@ -268,23 +270,26 @@ impl PubSub
                 // Reconstruire l'entiereté du packet Broadcast était un peu lourd dans ta version
                 // J'ai préféré le construire qu'une fois ici
                 //
-                // Peut-être vider le contenu de BytesMut ?                
-                let mut payload_bytes = packet.clone().freeze();
-                let mut payload = vec![0u8; payload_bytes.len()];
-                payload_bytes.copy_to_slice(&mut payload);
-                
+                // Peut-être vider le contenu de BytesMut ?
+                let payload = packet.clone().to_vec();                
                 let mut packet_bytes = BytesMut::new();
                 GameMessage::Broadcast{payload}.append_bytes(&mut packet_bytes);
-                
-                println!(
-                    "flush_peer_buffers() : sending to {} : {}", 
-                    peer_socket_id, u8_slice_to_hex_string(&packet)
-                );               
-                
-                // TODO : send 'packet_bytes' to 'peer_socket_id'
+                           
+                let res = peer.send(&peer_socket_id.0, &peer_socket_id.1, packet_bytes.freeze());
+                match res {
+                    Ok(()) => {
+                        info!(
+                            "flush_peer_buffers() : sent {:?} to {}", 
+                            peer_socket_id, u8_slice_to_hex_string(&packet)
+                        ); 
+                    }
+                    _ => {
+                        error!("flush_peer_buffers() : {:?}", res);
+                    }                    
+                }               
             }
         }
-        subs_buffers.clear();
+        self.subs_buffers.clear();
         return;
     }
 

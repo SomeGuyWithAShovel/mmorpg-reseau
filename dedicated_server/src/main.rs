@@ -83,19 +83,18 @@ fn debug_info(config : Res<ServerConfig>) {
 }
 
 fn bind_socket(mut commands : Commands, config : Res<ServerConfig>) -> Result {
-
-    const HEARTBEAT_PORT : u16 = 47347;
     
     let heartbeat_peer = GamePeer::new(UdpBackend::new());
-    let quic_game_peer = GamePeer::new(QuicBackend::new());
-
-    quic_game_peer.listen("0.0.0.0", config.port)?;
+    let broker_peer = GamePeer::new(QuicBackend::new());
     
     let orch_address = config.orchestrator_address;
-    heartbeat_peer.connect(&orch_address.ip().to_string().as_str(), HEARTBEAT_PORT)?;    
+    heartbeat_peer.connect(&orch_address.ip().to_string().as_str(), orch_address.port())?;
+
+    let broker_address = config.broker_address;
+    broker_peer.connect(&broker_address.ip().to_string().as_str(), broker_address.port())?;
     
     commands.insert_resource(DedicatedServerPeer{
-        broker_peer:quic_game_peer,
+        broker_peer,
         broker_connection:None,
         heartbeat_peer,
         orchestrator_connection:None,
@@ -169,6 +168,7 @@ fn receive_packets(
         match event {
             GameNetworkEvent::Connected(connection) => {
                 info!("Connexion broker : {:?}", connection);
+                peer_res.broker_peer.create_stream(connection, GameStreamReliability::Unreliable)?;
             }
             GameNetworkEvent::Disconnected(connection) => {
                 info!("Déconnexion broker {:?}", connection);
@@ -184,10 +184,7 @@ fn receive_packets(
             }
             GameNetworkEvent::StreamCreated(connection, stream) => {
                 info!("Création de stream avec le broker {:?}", connection);                
-                let client_id = ClientId{
-                    peer_type: PeerType::GameServer,
-                    value:config.get_own_client_id(),
-                };
+                let client_id = ClientId::of_game_server(config.get_own_client_id());
                 peer_res.broker_peer.send(&connection, &stream, GameMessage::Register{client_id}.as_bytes())?;
                 peer_res.broker_connection = Some(DedicatedServerConnection{connection, stream});
             }

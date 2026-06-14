@@ -19,7 +19,6 @@ extern crate redis;
 use redis::TypedCommands;
 
 const KEY_TTL : i64 = 15;
-const DEFAULT_HEARTBEAT_PORT : u16 = 47347;
 const DEFAULT_SERVER_CMD_PATH : &str = "../dedicated_server/target/debug/mmo_dedicated_server";
 const DEFAULT_SERVER_COUNT_INTERVAL : u64 = 3;
 const FIRST_SERVER_PORT : u16 = 8080;
@@ -37,7 +36,7 @@ async fn main() -> io::Result<()> {
         .ok()
         .map(|s| s.parse::<u16>().ok())
         .flatten()
-        .unwrap_or(DEFAULT_HEARTBEAT_PORT);
+        .unwrap_or(DEFAULT_ORCH_PORT);
     let server_count_interval_duration = std::env::var("SERVER_COUNT_INTERVAL")
         .ok()
         .map(|s| s.parse::<u64>().ok())

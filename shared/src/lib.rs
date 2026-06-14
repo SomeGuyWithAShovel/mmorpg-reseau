@@ -7,6 +7,9 @@ pub mod input;
 pub mod game_message;
 pub mod entity;
 
+pub const DEFAULT_BROKER_PORT : u16 = 51243;
+pub const DEFAULT_ORCH_PORT : u16 = 47347;
+
 pub const SECONDS_BETWEEN_HEARTBEATS : f32 = 5.0;
 
 #[derive(Debug)]
