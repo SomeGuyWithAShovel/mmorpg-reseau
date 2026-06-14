@@ -74,10 +74,7 @@ fn find_server(mut commands : Commands) -> Result {
         let peer = GamePeer::new(QuicBackend::new());
         peer.connect(user.server.ip.to_string().as_str(), user.server.port)?;
         commands.insert_resource(BrokerConnection{
-            client_id: ClientId{
-                peer_type:PeerType::Player,
-                value:user.player_id.as_u128(),
-            },
+            client_id: ClientId::of_player(user.player_id.as_u128()),
             peer,
             game_socket: None,
         });
@@ -92,7 +89,7 @@ fn find_server(mut commands : Commands) -> Result {
 async fn gatekeeper_connection() -> Option<LoginSuccess> {
     let user = get_user()?;
     if let Ok(post_body) = serde_json::to_string(&user) {
-        match reqwest::Client::new().post(get_gatekeeper_uri())
+        match reqwest::Client::new().post(format!("{}/login", get_gatekeeper_uri()))
             .header("Content-Type", "application/json")
             .body(post_body).send()
             .await
@@ -143,7 +140,7 @@ fn recieve_packets(mut conn : ResMut<BrokerConnection>,
                 info!("Fermeture de stream du serveur : {:?}", connection);
                 conn.game_socket = None;
             }
-            GameNetworkEvent::Error{connection:_, inner} => {
+            GameNetworkEvent::Error{inner, ..} => {
                 warn!("Erreur du serveur : {:?}", inner);
             }
         }
