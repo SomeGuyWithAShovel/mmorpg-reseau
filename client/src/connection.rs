@@ -75,7 +75,7 @@ fn find_server(mut commands : Commands) -> Result {
         peer.connect(user.server.ip.to_string().as_str(), user.server.port)?;
         commands.insert_resource(BrokerConnection{
             client_id: ClientId{
-                peer_type:PeerType::Client,
+                peer_type:PeerType::Player,
                 value:user.player_id.as_u128(),
             },
             peer,

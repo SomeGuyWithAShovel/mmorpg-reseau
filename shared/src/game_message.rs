@@ -8,14 +8,14 @@ use crate::input::PlayerActionHolder;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PeerType
 {
-    Client,
+    Player,
     GameServer,
     OtherServer,
 }
 
 impl PeerType
 {
-    pub const CLIENT : u8 = 0x00;
+    pub const PLAYER : u8 = 0x00;
     pub const GAME_SERVER : u8 = 0x01;
     pub const OTHER_SERVER : u8 = 0x02;
     
@@ -23,7 +23,7 @@ impl PeerType
     {
         match self
         {
-            Self::Client      => { Self::CLIENT }
+            Self::Player      => { Self::PLAYER }
             Self::GameServer  => { Self::GAME_SERVER }
             Self::OtherServer => { Self::OTHER_SERVER }
         }
@@ -32,7 +32,7 @@ impl PeerType
     pub const fn from_byte(byte: u8) -> Option<Self>
     {
         match byte {
-            Self::CLIENT       => Some(Self::Client),
+            Self::PLAYER       => Some(Self::Player),
             Self::GAME_SERVER  => Some(Self::GameServer),
             Self::OTHER_SERVER => Some(Self::OtherServer),
             _ => None
@@ -42,9 +42,30 @@ impl PeerType
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ClientId{
+pub struct ClientId {
     pub peer_type: PeerType,
     pub value : u128,
+}
+
+impl ClientId {
+    pub const fn of_player(value: u128) -> Self {
+        ClientId {
+            peer_type: PeerType::Player,
+            value,
+        }
+    }
+    pub const fn of_game_server(value: u128) -> Self {
+        ClientId {
+            peer_type: PeerType::GameServer,
+            value,
+        }
+    }
+    pub const fn of_other_server(value: u128) -> Self {
+        ClientId {
+            peer_type: PeerType::OtherServer,
+            value,
+        }
+    }
 }
 
 #[derive(Debug, Deref, DerefMut)]
