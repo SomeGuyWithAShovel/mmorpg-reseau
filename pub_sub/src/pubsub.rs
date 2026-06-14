@@ -18,27 +18,6 @@ pub fn u8_slice_to_hex_string(bytes: &[u8]) -> String
 }
 
 // -------------------------------------------------------------------------------------------------------------------
-// -------------------------------------------------------------------------------------------------------------------
-
-/**
-    ### PubSubMsgType
-    First Byte of packets sent or received by the PubSub
- */
-#[allow(unused)]
-#[derive(Clone, Copy)]
-pub enum PubSubMsgType
-{
-    None,
-    Subscribe,   // Peer -> PubSub
-    Unsubscribe, // Peer -> PubSub
-    Publish,     // Peer -> PubSub
-    Broadcast,   // PubSub -> Peer
-    ClientInput, // Client -> PubSub
-    Register,    // Peer -> PubSub
-}
-
-
-// -------------------------------------------------------------------------------------------------------------------
 
 use game_sockets::{GameConnection, GameStream, GamePeer};
 
