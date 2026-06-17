@@ -21,6 +21,10 @@ impl Default for Velocity
 }
 impl Velocity
 {
+    pub fn new(x : f32, y : f32) -> Self {
+        Self {v: Vec2::new(x, y) }
+    }
+    
     pub fn reset(&mut self)
     {
         self.v = Vec2::ZERO;
