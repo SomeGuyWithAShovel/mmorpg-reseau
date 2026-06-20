@@ -2,37 +2,28 @@ use game_sockets::*;
 use game_sockets::protocols::QuicBackend;
 use tokio::runtime::Builder;
 use shared::{*, entity::*, input::*, game_message::*};
-use crate::{player::spawn_player, ClientEntityTag};
 use bytes::*;
 use bevy::prelude::*;
-use std::collections::HashMap;
 
 pub struct GameSocketId {
     connection : GameConnection,
     stream : GameStream,
 }
 
-#[derive(Event)]
-pub struct WelcomeEvent {
-    pub id : u32,
-}
-
 #[derive(Resource)]
 pub struct BrokerConnection {
-    client_id : ClientId,
-    peer : GamePeer,
-    game_socket : Option<GameSocketId>,
+    pub client_id : ClientId,
+    pub peer : GamePeer,
+    pub game_socket : Option<GameSocketId>,
 }
 
 #[derive(Message)]
 pub struct UpdateEntity {
-    id : EntityId,
-    pos: Vec2,
-    vel: Vec2,
-    state : EntityState,
+    pub id : EntityId,
+    pub pos: Vec2,
+    pub vel: Vec2,
+    pub state : EntityState,
 }
-
-
     
 pub struct ConnectionPlugin;
 
@@ -41,8 +32,6 @@ impl Plugin for ConnectionPlugin {
         app
             .add_systems(Startup, find_server)
             .add_systems(PreUpdate, recieve_packets)
-            .add_systems(StateTransition, update_states)
-            .add_systems(Update, reajust_position)
             .add_systems(PostUpdate, send_inputs)
             .add_message::<UpdateEntity>();
     }
@@ -199,42 +188,4 @@ fn send_inputs(
     Ok(())
 }
 
-fn update_states(mut msg_reader : MessageReader<UpdateEntity>) {
-    let mut map = HashMap::<u32, EntityState>::new();
-    for msg in msg_reader.read() {        
-        let UpdateEntity{id: EntityId(id), state, ..} = msg;
-        map.insert(*id, *state);
-    }
 
-    // Mise à jour des états en fonction des besoins...
-}
-
-fn reajust_position(mut msg_reader : MessageReader<UpdateEntity>,
-                    mut query : Query<(&ClientEntityTag, &mut Transform)>,
-                    mut commands : Commands,
-                    asset_server : Res<AssetServer>) {
-    let mut map = HashMap::<u32, Transform>::new();
-    for msg in msg_reader.read() {        
-        let UpdateEntity{id: EntityId(id), pos, vel, ..} = msg;
-        let rot = Quat::from_rotation_z(vel.to_angle() - std::f32::consts::FRAC_PI_2);
-        let transform = Transform::from_xyz(pos.x, pos.y, 0.0)
-            .with_rotation(rot);
-        map.insert(*id, transform);
-    }
-
-    for (ClientEntityTag(EntityId(id)), mut transform) in &mut query {
-        if let Some(new_transform) = map.get(id) {
-            transform.translation = new_transform.translation;
-            transform.rotation = new_transform.rotation;
-            map.remove(id);
-        }
-    }
-
-    // Entitées non encore créees
-    for (id, transform) in map {
-        spawn_player(id, &mut commands, &asset_server).entry::<Transform>().and_modify(move |mut t| {
-            t.translation = transform.translation;
-            t.rotation = transform.rotation;
-        });
-    }
-}

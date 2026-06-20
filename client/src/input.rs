@@ -3,7 +3,6 @@ use bevy::{
     input::keyboard::{
         Key,
         KeyCode,
-        KeyboardInput,
     }
 };
 
@@ -28,20 +27,3 @@ pub fn system_input_keyboard(keycodes_input: Res<ButtonInput<KeyCode>>, keys_inp
         }
     }
 }
-
-// -------------------------------------------------------------------------------------------------------------------
-
-#[allow(dead_code)] // unused : see comments
-#[deprecated(note = "use system_input_keyboard() instead")]
-pub fn messages_input_keyboard(mut keyboard_inputs: MessageReader<KeyboardInput>)
-{
-    for keyboard_input in keyboard_inputs.read()
-    {
-        info!("{:?}", keyboard_input);
-        // when we press a key, we have : 
-        // "k            kkkkkkkkkkkkkkkkkkkkkkkkkkk", like when we write text.
-        // whereas in the system input version, we have the wanted behaviour.
-    }
-}
-
-// -------------------------------------------------------------------------------------------------------------------
