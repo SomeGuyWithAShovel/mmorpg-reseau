@@ -306,7 +306,7 @@ impl GameMessage {
                     entity_id: EntityId(entity),
                     pos: Vec2::new(px, py),
                     vel: Vec2::new(vx, vy),
-                    state: EntityState::from_bytes(Bytes::copy_from_slice(&state))?,
+                    state: EntityState::from_bytes(&mut Bytes::copy_from_slice(&state))?,
                     border,
                 })
             }
@@ -333,7 +333,7 @@ impl GameMessage {
                     entity_id: EntityId(entity),
                     pos: Vec2::new(px, py),
                     vel: Vec2::new(vx, vy),
-                    state: EntityState::from_bytes(Bytes::copy_from_slice(&state))?,
+                    state: EntityState::from_bytes(&mut Bytes::copy_from_slice(&state))?,
                 })
             }
             Self::HANDOFF_COMPLETE => {
@@ -358,7 +358,7 @@ impl GameMessage {
                     entity_id: EntityId(entity),
                     pos: Vec2::new(px, py),
                     vel: Vec2::new(vx, vy),
-                    state: EntityState::from_bytes(Bytes::copy_from_slice(&state))?,
+                    state: EntityState::from_bytes(&mut Bytes::copy_from_slice(&state))?,
                 })
             }
             Self::REGISTER => {

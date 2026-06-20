@@ -7,7 +7,7 @@ pub struct EntityId(pub u32);
 
 pub const PLAYABLE_DIST_EPSILON: f32 = 0.5; // f32::EPSILON is too small for our use-case
 
-#[derive(Component)]
+#[derive(Component, Copy, Clone)]
 pub struct Velocity
 {
     pub v: Vec2,
@@ -46,9 +46,14 @@ impl EntityState {
     const PLAYER_STATE : u8 = 0x01;
     const OTHER : u8 = 0xFF;
 
-    // Toujours de taille 64
     pub fn to_bytes(&self) -> Bytes {
-        let mut out = BytesMut::with_capacity(8 + 8 + 128);
+        let mut bytes = BytesMut::new();
+        self.append_bytes(&mut bytes);
+        bytes.freeze()
+    }
+    
+    // Toujours de taille 64
+    pub fn append_bytes(&self, out : &mut BytesMut) {
         match self {
             EntityState::PlayerState{id} => {
                 out.put_u8(Self::PLAYER_STATE);
@@ -60,10 +65,9 @@ impl EntityState {
             }
         }
         out.resize(64, 0u8);
-        out.freeze()
     }
     
-    pub fn from_bytes(mut data : Bytes) -> Option<Self> {
+    pub fn from_bytes(data : &mut Bytes) -> Option<Self> {
         if !data.remaining() < 64 + 1 { return None; }
         let mut data = data.split_to(64);
         let tag = data.get_u8();

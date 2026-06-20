@@ -198,7 +198,7 @@ fn notify_authority_handoff(event : On<HandoffAuthority>,
     if let Ok(tag) = tags.get(event.entity) {
         GameMessage::HandoffComplete {
             entity_id: tag.id,
-            border: event.border,                    
+            border: event.border,
         }.append_bytes(&mut network_message);
     }
 }
