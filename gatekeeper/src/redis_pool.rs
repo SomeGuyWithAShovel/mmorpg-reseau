@@ -3,6 +3,8 @@ use redis::{
     SetOptions,
 };
 
+use shared::*;
+
 use tokio::time::timeout;
 
 use std::{
@@ -16,10 +18,6 @@ use serde::Deserialize;
 
 #[allow(unused)]
 use log::{info, warn, error};
-
-use crate::handlers::{
-    ServerInfo, ServerZone,
-};
 
 pub const TIMEOUT_DURATION : std::time::Duration = std::time::Duration::from_millis(2000);
 
@@ -454,32 +452,14 @@ struct ServerInfoInRedis
     status: String
 }
 
-impl ServerZone
-{
-    fn from_string(str: &str) -> Option<ServerZone>
-    {
-        match str
-        {
-            "zone_A" => { Some(ServerZone::zone_A) }
-            "zone_B" => { Some(ServerZone::zone_B) }
-            "zone_C" => { Some(ServerZone::zone_C) }
-            "zone_D" => { Some(ServerZone::zone_D) }
-            "zone_E" => { Some(ServerZone::zone_E) }
-            _ => { None }
-        }
-    }
-}
-
 impl ServerInfoInRedis
 {
     fn into_server_info(&self) -> Option<ServerInfo>
     {
-        let Some(zone) = ServerZone::from_string(&self.zone)
-        else { return None; };
         return Some( ServerInfo {
             ip: self.ip,
             port: self.port,
-            zone: zone,
+            zone: self.zone.clone(),
         });
     }
 }

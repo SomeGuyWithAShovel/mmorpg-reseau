@@ -1,6 +1,7 @@
 mod input;
 mod player;
 mod connection;
+mod game;
 
 use bevy::{
     prelude::*,
@@ -32,6 +33,7 @@ fn main()
 
     app.add_plugins(player::PlayerPlugin);
     app.add_plugins(connection::ConnectionPlugin);
+    app.add_plugins(game::GamePlugin);
 
     app.run();
 

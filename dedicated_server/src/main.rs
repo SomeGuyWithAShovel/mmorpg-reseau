@@ -7,7 +7,7 @@ mod server;
 use crate::server::*;
 mod entity;
 use crate::entity::*;
-use shared::{*, game_message::*};
+use shared::{*, game_message::*, entity::{Velocity, EntityState}, topic::TopicContent};
 mod messages;
 use messages::*;
 
@@ -59,7 +59,7 @@ fn main() {
     // Ordre : https://docs.rs/bevy/0.13.2/bevy/app/struct.Main.html
         .add_systems(PreUpdate, receive_packets)
         .add_systems(Update, send_heartbeat_periodically)
-        .add_systems(PostUpdate, send_network_package)
+        .add_systems(PostUpdate, (write_entities_to_package, send_network_package).chain())
         .run();
 }
 
@@ -83,25 +83,41 @@ fn debug_info(config : Res<ServerConfig>) {
 }
 
 fn bind_socket(mut commands : Commands, config : Res<ServerConfig>) -> Result {
-
-    const HEARTBEAT_PORT : u16 = 47347;
     
     let heartbeat_peer = GamePeer::new(UdpBackend::new());
-    let quic_game_peer = GamePeer::new(QuicBackend::new());
-
-    quic_game_peer.listen("0.0.0.0", config.port)?;
+    let broker_peer = GamePeer::new(QuicBackend::new());
     
     let orch_address = config.orchestrator_address;
-    heartbeat_peer.connect(&orch_address.ip().to_string().as_str(), HEARTBEAT_PORT)?;    
+    heartbeat_peer.connect(&orch_address.ip().to_string().as_str(), orch_address.port())?;
+
+    let broker_address = config.broker_address;
+    broker_peer.connect(&broker_address.ip().to_string().as_str(), broker_address.port())?;
     
     commands.insert_resource(DedicatedServerPeer{
-        broker_peer:quic_game_peer,
+        broker_peer,
         broker_connection:None,
         heartbeat_peer,
         orchestrator_connection:None,
     });
     
     Ok(())
+}
+
+fn handle_publish(
+    topic : &Topic,
+    payload : Vec<u8>,
+    player_input_writer : &mut MessageWriter<PlayerActionHolderMessage>) {
+    
+    if let Some(topic_content) = TopicContent::from_publish(topic, payload) {            
+        match topic_content {
+            TopicContent::PlayerInput{client_id, input} => {
+                player_input_writer.write(PlayerActionHolderMessage{id:client_id, act:input});
+            }
+            TopicContent::EntityInfo{..} => {
+                error!("Le game server publie des entity info, il ne devrait pas en recevoir");
+            }
+        }
+    }
 }
 
 fn message_received(
@@ -119,8 +135,8 @@ fn message_received(
     
     while let Some(message) = GameMessage::from_bytes(&mut data_copy) {
         match message {
-            GameMessage::ClientInput{ client_id, input } => {
-                player_input_writer.write(PlayerActionHolderMessage{id:client_id, act:input});
+            GameMessage::Publish{ topic, payload } => {
+                handle_publish(&topic, payload, player_input_writer);                
             }
             GameMessage::HandoffRequest { entity_id, pos, vel, state, .. } => {
                 // Créer l'entité dans le serveur en mode "Ghost"
@@ -169,6 +185,7 @@ fn receive_packets(
         match event {
             GameNetworkEvent::Connected(connection) => {
                 info!("Connexion broker : {:?}", connection);
+                peer_res.broker_peer.create_stream(connection, GameStreamReliability::Unreliable)?;
             }
             GameNetworkEvent::Disconnected(connection) => {
                 info!("Déconnexion broker {:?}", connection);
@@ -184,10 +201,7 @@ fn receive_packets(
             }
             GameNetworkEvent::StreamCreated(connection, stream) => {
                 info!("Création de stream avec le broker {:?}", connection);                
-                let client_id = ClientId{
-                    peer_type: PeerType::GameServer,
-                    value:config.get_own_client_id(),
-                };
+                let client_id = ClientId::of_game_server(config.get_own_client_id());
                 peer_res.broker_peer.send(&connection, &stream, GameMessage::Register{client_id}.as_bytes())?;
                 peer_res.broker_connection = Some(DedicatedServerConnection{connection, stream});
             }
@@ -280,6 +294,26 @@ fn send_heartbeat_periodically(
         send_heartbeat(&config, &peer_res, player_count)?;
     }
     Ok(())    
+}
+
+fn write_entities_to_package(entities : Query<(&ServerEntityTag, &Velocity, &Transform, Option<&PlayerTag>)>, mut network_message : ResMut<NetworkMessage>) {
+    for (tag, velocity, transform, player_tag) in entities {
+        if tag.state == EntityNetworkState::Owned { // On publish ce qui nous apparitient
+            let state = match player_tag {
+                Some(PlayerTag{id}) => { EntityState::PlayerState{id: *id} }
+                None => { EntityState::Other }
+            };
+
+            
+            TopicContent::EntityInfo{
+                entity_id: tag.id,
+                velocity: *velocity,
+                transform: *transform,
+                state,
+            }.to_publish()
+                .append_bytes(&mut network_message)
+        }
+    }
 }
 
 fn send_network_package(peer_res : ResMut<DedicatedServerPeer>, mut network_message : ResMut<NetworkMessage>) -> Result {

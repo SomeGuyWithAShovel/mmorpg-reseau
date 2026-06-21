@@ -18,13 +18,13 @@ use axum::{
 
 use serde::{ 
     Serialize,
-    Deserialize,
 };
 
 use std::net::{
-        Ipv4Addr, 
-        SocketAddr,
-    };
+    SocketAddr,
+};
+
+use shared::*;
 
 use uuid::Uuid;
 
@@ -119,52 +119,7 @@ async fn get_status(
     return (StatusCode::OK, Json(status));
 }
 
-// -------------------------------------------------------------------------------------------------------------------
-// -------------------------------------------------------------------------------------------------------------------
 
-// POST /login Json INPUT
-#[derive(Debug, Deserialize)]
-struct LoginRequest
-{
-    username: String,
-    password: String,
-}
-
-// -------------------------------------------------------------------------------------------------------------------
-// -------------------------------------------------------------------------------------------------------------------
-
-// POST /login Json OUTPUT
-
-#[derive(Serialize)]
-struct LoginSuccess
-{
-    player_id: Uuid,
-    server: ServerInfo,
-}
-
-// -------------------------------------------------------------------------------------------------------------------
-
-// TODO : move to a shared lib
-
-#[derive(Clone, Copy, Serialize, Deserialize)]
-#[allow(non_camel_case_types, unused)]
-pub enum ServerZone
-{
-    zone_A,
-    zone_B,
-    zone_C,
-    zone_D,
-    zone_E,
-    // ...
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct ServerInfo
-{
-    pub ip: Ipv4Addr,
-    pub port: u16,
-    pub zone: ServerZone,
-}
 
 // -------------------------------------------------------------------------------------------------------------------
 
