@@ -35,7 +35,7 @@ impl ServerConfig {
             orchestrator_address : std::env::var("ORCH_ADDRESS").ok()
                 .and_then(|s| Ipv4Addr::from_str(s.as_str()).ok())
                 .map(IpAddr::from)
-                .map(|ipv4| SocketAddr::new(ipv4, orch_port))
+                .map(|ip| SocketAddr::new(ip, orch_port))
                 .unwrap_or(SocketAddr::new(IpAddr::from(DEFAULT_ADDRESS), orch_port)),
             broker_address : std::env::var("BROKER_ADDRESS").ok()
                 .and_then(|s| Ipv4Addr::from_str(s.as_str()).ok())

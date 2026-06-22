@@ -53,7 +53,7 @@ fn main() {
         .insert_resource(NetworkMessage(BytesMut::new()))
         .insert_resource(ServerConfig::from_env())
         .insert_resource(HeartbeatTimer(Timer::from_seconds(SECONDS_BETWEEN_HEARTBEATS , TimerMode::Repeating)))
-        .add_systems(Startup, bind_socket.chain())
+        .add_systems(Startup, bind_socket)
         .add_systems(Startup, debug_info)
     // PreUpdate pour passer avant FixedUpdate de EntityPlugin
     // Ordre : https://docs.rs/bevy/0.13.2/bevy/app/struct.Main.html
@@ -254,7 +254,6 @@ fn receive_packets(
     
     Ok(())
 }
-
 
 fn send_heartbeat(
     config : &ServerConfig,
